@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Label, BarChart, Bar } from 'recharts';
 import MarkdownContent from './components/MarkdownContent';
 
 interface Food {
@@ -14,6 +14,20 @@ interface Food {
   fat: number;
   carbs: number;
   score: number;
+  vitamin_a?: number;
+  vitamin_c?: number;
+  vitamin_d?: number;
+  vitamin_e?: number;
+  vitamin_b1?: number;
+  vitamin_b2?: number;
+  vitamin_b6?: number;
+  vitamin_b12?: number;
+  calcium?: number;
+  iron?: number;
+  potassium?: number;
+  magnesium?: number;
+  zinc?: number;
+  choline?: number;
 }
 
 interface Totals {
@@ -21,6 +35,20 @@ interface Totals {
   protein: number;
   fat: number;
   carbs: number;
+  vitamin_a?: number;
+  vitamin_c?: number;
+  vitamin_d?: number;
+  vitamin_e?: number;
+  vitamin_b1?: number;
+  vitamin_b2?: number;
+  vitamin_b6?: number;
+  vitamin_b12?: number;
+  calcium?: number;
+  iron?: number;
+  potassium?: number;
+  magnesium?: number;
+  zinc?: number;
+  choline?: number;
 }
 
 interface WeightRecord {
@@ -34,6 +62,20 @@ interface CalorieRecord {
   total_protein?: number;
   total_fat?: number;
   total_carbs?: number;
+  total_vitamin_a?: number;
+  total_vitamin_c?: number;
+  total_vitamin_d?: number;
+  total_vitamin_e?: number;
+  total_vitamin_b1?: number;
+  total_vitamin_b2?: number;
+  total_vitamin_b6?: number;
+  total_vitamin_b12?: number;
+  total_calcium?: number;
+  total_iron?: number;
+  total_potassium?: number;
+  total_magnesium?: number;
+  total_zinc?: number;
+  total_choline?: number;
 }
 
 interface ChatMessage {
@@ -51,15 +93,29 @@ interface ChatRoom {
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<'home' | 'stats' | 'ai'>('home');
+  const [expandedFoodId, setExpandedFoodId] = useState<number | null>(null);
 
   // ベースカロリー設定
   const [leanBodyMass, setLeanBodyMass] = useState('');
+  const [height, setHeight] = useState('');
+  const [weight, setWeight] = useState('');
+  const [age, setAge] = useState('');
   const [baseConfig, setBaseConfig] = useState<{
+    lean_body_mass: number | null;
+    height: number | null;
+    weight: number | null;
+    age: number | null;
+    basal_metabolic_rate: number | null;
     base_calories: number | null;
     base_protein: number | null;
     base_fat: number | null;
     base_carbs: number | null;
   }>({
+    lean_body_mass: null,
+    height: null,
+    weight: null,
+    age: null,
+    basal_metabolic_rate: null,
     base_calories: null,
     base_protein: null,
     base_fat: null,
@@ -78,6 +134,8 @@ export default function Home() {
   });
   const [weightAm, setWeightAm] = useState('');
   const [memo, setMemo] = useState('');
+  const [sleepHours, setSleepHours] = useState('');
+  const [cardioMinutes, setCardioMinutes] = useState('');
 
   const [foodName, setFoodName] = useState('');
   const [amount, setAmount] = useState('');
@@ -93,7 +151,9 @@ export default function Home() {
   const suggestTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // 統計用
-  const [statsDays, setStatsDays] = useState<number | 'all'>(30);
+  const [statsValue, setStatsValue] = useState<number>(30);
+  const [statsUnit, setStatsUnit] = useState<'days' | 'months' | 'years'>('days');
+  const [isAllPeriod, setIsAllPeriod] = useState(false);
   const [statsCalorieDays, setStatsCalorieDays] = useState<CalorieRecord[]>([]);
   const [statsWeightDays, setStatsWeightDays] = useState<WeightRecord[]>([]);
 
@@ -126,10 +186,16 @@ export default function Home() {
     const res = await fetch('/api/config');
     if (!res.ok) return;
     const data = await res.json();
-    if (data.lean_body_mass) {
-      setLeanBodyMass(String(data.lean_body_mass));
-    }
+    if (data.lean_body_mass) setLeanBodyMass(String(data.lean_body_mass));
+    if (data.height) setHeight(String(data.height));
+    if (data.weight) setWeight(String(data.weight));
+    if (data.age) setAge(String(data.age));
     setBaseConfig({
+      lean_body_mass: data.lean_body_mass,
+      height: data.height,
+      weight: data.weight,
+      age: data.age,
+      basal_metabolic_rate: data.basal_metabolic_rate,
       base_calories: data.base_calories,
       base_protein: data.base_protein,
       base_fat: data.base_fat,
@@ -149,28 +215,34 @@ export default function Home() {
     const data = await res.json();
     setWeightAm(data.weight_am !== null && data.weight_am !== undefined ? String(data.weight_am) : '');
     setMemo(data.memo || '');
+    setSleepHours(data.sleep_hours !== null && data.sleep_hours !== undefined ? String(data.sleep_hours) : '');
+    setCardioMinutes(data.cardio_minutes !== null && data.cardio_minutes !== undefined ? String(data.cardio_minutes) : '');
   };
 
   const fetchStatsData = async () => {
-    if (statsDays === 'all') {
-      const [foodsRes, dailyRes] = await Promise.all([
-        fetch(`/api/foods?days=9999`),
-        fetch(`/api/daily?days=9999`),
-      ]);
-      const foodsData = await foodsRes.json();
-      const dailyData = await dailyRes.json();
-      setStatsCalorieDays(foodsData.records || []);
-      setStatsWeightDays(dailyData.records || []);
+    let days: number;
+    
+    if (isAllPeriod) {
+      days = 9999; // 全期間
     } else {
-      const [foodsRes, dailyRes] = await Promise.all([
-        fetch(`/api/foods?days=${statsDays}`),
-        fetch(`/api/daily?days=${statsDays}`),
-      ]);
-      const foodsData = await foodsRes.json();
-      const dailyData = await dailyRes.json();
-      setStatsCalorieDays(foodsData.records || []);
-      setStatsWeightDays(dailyData.records || []);
+      // 単位に応じて日数に変換
+      if (statsUnit === 'days') {
+        days = statsValue;
+      } else if (statsUnit === 'months') {
+        days = statsValue * 30;
+      } else { // years
+        days = statsValue * 365;
+      }
     }
+    
+    const [foodsRes, dailyRes] = await Promise.all([
+      fetch(`/api/foods?days=${days}`),
+      fetch(`/api/daily?days=${days}`),
+    ]);
+    const foodsData = await foodsRes.json();
+    const dailyData = await dailyRes.json();
+    setStatsCalorieDays(foodsData.records || []);
+    setStatsWeightDays(dailyData.records || []);
   };
 
   const fetchChatRooms = async () => {
@@ -203,7 +275,7 @@ export default function Home() {
     if (activeTab === 'stats') {
       fetchStatsData();
     }
-  }, [activeTab, statsDays]);
+  }, [activeTab, statsValue, statsUnit, isAllPeriod]);
 
   useEffect(() => {
     if (activeTab === 'ai' && currentRoomId) {
@@ -264,11 +336,10 @@ export default function Home() {
     setWeightAm(value);
     if (weightTimerRef.current) clearTimeout(weightTimerRef.current);
     weightTimerRef.current = setTimeout(async () => {
-      if (!value) return;
       await fetch('/api/daily', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, weight_am: parseFloat(value) }),
+        body: JSON.stringify({ date, weight_am: value ? parseFloat(value) : null }),
       });
       fetchWeightHistory();
     }, 500);
@@ -281,21 +352,66 @@ export default function Home() {
       await fetch('/api/daily', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, memo: value }),
+        body: JSON.stringify({ date, memo: value || null }),
+      });
+    }, 500);
+  };
+
+  const sleepTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const handleSleepChange = (value: string) => {
+    setSleepHours(value);
+    if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current);
+    sleepTimerRef.current = setTimeout(async () => {
+      await fetch('/api/daily', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, sleep_hours: value ? parseFloat(value) : null }),
+      });
+    }, 500);
+  };
+
+  const cardioTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const handleCardioChange = (value: string) => {
+    setCardioMinutes(value);
+    if (cardioTimerRef.current) clearTimeout(cardioTimerRef.current);
+    cardioTimerRef.current = setTimeout(async () => {
+      await fetch('/api/daily', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, cardio_minutes: value ? parseFloat(value) : null }),
       });
     }, 500);
   };
 
   const handleSaveConfig = async () => {
-    if (!leanBodyMass) return;
+    // 除脂肪体重または身長・体重・年齢のいずれかが入力されている必要がある
+    const hasLeanBodyMass = leanBodyMass && parseFloat(leanBodyMass) > 0;
+    const hasBodyMetrics = height && weight && age && parseFloat(height) > 0 && parseFloat(weight) > 0 && parseInt(age) > 0;
+    
+    if (!hasLeanBodyMass && !hasBodyMetrics) return;
+    
+    const payload: any = {};
+    if (hasLeanBodyMass) payload.lean_body_mass = parseFloat(leanBodyMass);
+    if (hasBodyMetrics) {
+      payload.height = parseFloat(height);
+      payload.weight = parseFloat(weight);
+      payload.age = parseInt(age);
+    }
+    
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lean_body_mass: parseFloat(leanBodyMass) }),
+      body: JSON.stringify(payload),
     });
+    
     if (res.ok) {
       const data = await res.json();
       setBaseConfig({
+        lean_body_mass: data.lean_body_mass,
+        height: data.height,
+        weight: data.weight,
+        age: data.age,
+        basal_metabolic_rate: data.basal_metabolic_rate,
         base_calories: data.base_calories,
         base_protein: data.base_protein,
         base_fat: data.base_fat,
@@ -330,6 +446,20 @@ export default function Home() {
           fat: food.fat,
           carbs: food.carbs,
           score: food.score,
+          vitamin_a: food.vitamin_a,
+          vitamin_c: food.vitamin_c,
+          vitamin_d: food.vitamin_d,
+          vitamin_e: food.vitamin_e,
+          vitamin_b1: food.vitamin_b1,
+          vitamin_b2: food.vitamin_b2,
+          vitamin_b6: food.vitamin_b6,
+          vitamin_b12: food.vitamin_b12,
+          calcium: food.calcium,
+          iron: food.iron,
+          potassium: food.potassium,
+          magnesium: food.magnesium,
+          zinc: food.zinc,
+          choline: food.choline,
         }),
       });
       await refreshAll();
@@ -466,20 +596,28 @@ export default function Home() {
     }
   };
 
-  const calDeficit = baseConfig.base_calories
-    ? statsCalorieDays.reduce((acc, d) => acc + (d.total_calories - (baseConfig.base_calories || 0)), 0)
-    : 0;
-  const pDiff = baseConfig.base_protein
-    ? statsCalorieDays.reduce((acc, d) => acc + ((d.total_protein || 0) - (baseConfig.base_protein || 0)), 0)
-    : 0;
-  const fDiff = baseConfig.base_fat
-    ? statsCalorieDays.reduce((acc, d) => acc + ((d.total_fat || 0) - (baseConfig.base_fat || 0)), 0)
-    : 0;
-  const cDiff = baseConfig.base_carbs
-    ? statsCalorieDays.reduce((acc, d) => acc + ((d.total_carbs || 0) - (baseConfig.base_carbs || 0)), 0)
-    : 0;
-
   const currentRoom = chatRooms.find((r) => r.id === currentRoomId);
+
+  // 消費カロリー計算
+  const calculateBurnedCalories = () => {
+    if (!baseConfig.basal_metabolic_rate) return { basal: 0, cardio: 0, total: 0 };
+    
+    const basalMetabolicRate = baseConfig.basal_metabolic_rate; // 基礎代謝 (kcal/日)
+    
+    // 有酸素運動: METs = 6 (中程度の有酸素運動)
+    // 簡略化: 基礎代謝ベースで計算
+    const cardioHours = cardioMinutes ? parseFloat(cardioMinutes) / 60 : 0;
+    const cardio = cardioHours ? (basalMetabolicRate * 6 * cardioHours) / 24 : 0;
+    
+    return {
+      basal: Math.round(basalMetabolicRate),
+      cardio: Math.round(cardio),
+      total: Math.round(basalMetabolicRate + cardio)
+    };
+  };
+
+  const burnedCalories = calculateBurnedCalories();
+  const netCalories = totals.calories - burnedCalories.total;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
@@ -571,34 +709,97 @@ export default function Home() {
                   {totals.calories.toFixed(0)}
                   <span className="text-lg font-normal ml-1 opacity-80">kcal</span>
                 </div>
+                
+                {/* 消費カロリー表示 */}
+                {burnedCalories.total > 0 && (
+                  <div className="mt-2 text-xs opacity-90 space-y-1">
+                    <div className="flex justify-center gap-3">
+                      {burnedCalories.basal > 0 && (
+                        <span>基礎代謝: -{burnedCalories.basal} kcal</span>
+                      )}
+                      {burnedCalories.cardio > 0 && (
+                        <span>有酸素: -{burnedCalories.cardio} kcal</span>
+                      )}
+                    </div>
+                    <div className="font-bold">
+                      正味: {netCalories.toFixed(0)} kcal
+                    </div>
+                  </div>
+                )}
+
                 {baseConfig.base_calories !== null && (
-                  <div className="text-sm opacity-90">
-                    目標 {baseConfig.base_calories} kcal{' '}
-                    <span className={totals.calories - (baseConfig.base_calories || 0) > 0 ? 'text-yellow-200' : 'text-green-200'}>
-                      ({totals.calories - (baseConfig.base_calories || 0) > 0 ? '+' : ''}
-                      {(totals.calories - (baseConfig.base_calories || 0)).toFixed(0)})
+                  <div className="text-sm opacity-90 mt-2">
+                    メンテナンスカロリー {baseConfig.base_calories} kcal{' '}
+                    <span className={netCalories - (baseConfig.base_calories || 0) > 0 ? 'text-yellow-200' : 'text-green-200'}>
+                      ({netCalories - (baseConfig.base_calories || 0) > 0 ? '+' : ''}
+                      {(netCalories - (baseConfig.base_calories || 0)).toFixed(0)})
                     </span>
                   </div>
                 )}
-                <div className="mt-3 flex justify-center gap-4 text-sm">
-                  <span>P: <strong>{totals.protein.toFixed(1)}</strong>g</span>
-                  <span>F: <strong>{totals.fat.toFixed(1)}</strong>g</span>
-                  <span>C: <strong>{totals.carbs.toFixed(1)}</strong>g</span>
+                <div className="mt-3 space-y-1">
+                  <div className="flex justify-center gap-4 text-sm">
+                    <span>P: <strong>{totals.protein.toFixed(1)}</strong>g</span>
+                    <span>F: <strong>{totals.fat.toFixed(1)}</strong>g</span>
+                    <span>C: <strong>{totals.carbs.toFixed(1)}</strong>g</span>
+                  </div>
+                  {baseConfig.base_protein !== null && baseConfig.base_fat !== null && baseConfig.base_carbs !== null && (
+                    <div className="flex justify-center gap-2 text-xs opacity-80">
+                      <span className={totals.protein - (baseConfig.base_protein || 0) >= 0 ? 'text-green-200' : 'text-red-200'}>
+                        ({totals.protein - (baseConfig.base_protein || 0) >= 0 ? '+' : ''}
+                        {(totals.protein - (baseConfig.base_protein || 0)).toFixed(1)})
+                      </span>
+                      <span className={totals.fat - (baseConfig.base_fat || 0) <= 0 ? 'text-green-200' : 'text-yellow-200'}>
+                        ({totals.fat - (baseConfig.base_fat || 0) > 0 ? '+' : ''}
+                        {(totals.fat - (baseConfig.base_fat || 0)).toFixed(1)})
+                      </span>
+                      <span className={totals.carbs - (baseConfig.base_carbs || 0) <= 0 ? 'text-green-200' : 'text-yellow-200'}>
+                        ({totals.carbs - (baseConfig.base_carbs || 0) > 0 ? '+' : ''}
+                        {(totals.carbs - (baseConfig.base_carbs || 0)).toFixed(1)})
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* 体重 */}
+            {/* 体重・睡眠・有酸素 */}
             <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
-              <h2 className="font-semibold mb-2 text-slate-700">体重</h2>
-              <input
-                type="number"
-                step="0.1"
-                value={weightAm}
-                onChange={(e) => handleWeightChange(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="朝の体重 (kg)"
-              />
+              <h2 className="font-semibold mb-3 text-slate-700">体重・活動</h2>
+              <div className="space-y-2">
+                <div>
+                  <label className="text-xs text-slate-600 mb-1 block">体重 (kg)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={weightAm}
+                    onChange={(e) => handleWeightChange(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="朝の体重"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-600 mb-1 block">睡眠時間 (時間)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={sleepHours}
+                    onChange={(e) => handleSleepChange(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="例: 7.5"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-600 mb-1 block">有酸素運動 (分)</label>
+                  <input
+                    type="number"
+                    step="5"
+                    value={cardioMinutes}
+                    onChange={(e) => handleCardioChange(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="例: 30"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* メモ */}
@@ -629,7 +830,7 @@ export default function Home() {
                     autoComplete="off"
                   />
                   {showSuggestions && suggestions.length > 0 && (
-                    <ul className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                    <ul className="absolute z-50 bottom-full mb-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
                       {suggestions.map((s) => (
                         <li
                           key={s}
@@ -707,8 +908,34 @@ export default function Home() {
                           </button>
                         </div>
                       </div>
-                      <div className="text-xs text-slate-600">
-                        {food.calories}kcal ・ P:{food.protein}g ・ F:{food.fat}g ・ C:{food.carbs}g
+                      <div className="text-xs text-slate-600 space-y-1">
+                        <div>{food.calories}kcal ・ P:{food.protein}g ・ F:{food.fat}g ・ C:{food.carbs}g</div>
+                        {(food.vitamin_a || food.vitamin_c || food.calcium || food.iron) && (
+                          <button
+                            onClick={() => setExpandedFoodId(expandedFoodId === food.id ? null : food.id)}
+                            className="text-blue-600 hover:text-blue-700 font-medium"
+                          >
+                            {expandedFoodId === food.id ? 'ミクロ栄養素を隠す ▲' : 'ミクロ栄養素を表示 ▼'}
+                          </button>
+                        )}
+                        {expandedFoodId === food.id && (
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-[10px] text-slate-500 bg-slate-50 p-2 rounded">
+                            {food.vitamin_a ? <div>ビタミンA: {food.vitamin_a.toFixed(1)}μg</div> : null}
+                            {food.vitamin_c ? <div>ビタミンC: {food.vitamin_c.toFixed(1)}mg</div> : null}
+                            {food.vitamin_d ? <div>ビタミンD: {food.vitamin_d.toFixed(1)}μg</div> : null}
+                            {food.vitamin_e ? <div>ビタミンE: {food.vitamin_e.toFixed(1)}mg</div> : null}
+                            {food.vitamin_b1 ? <div>ビタミンB1: {food.vitamin_b1.toFixed(2)}mg</div> : null}
+                            {food.vitamin_b2 ? <div>ビタミンB2: {food.vitamin_b2.toFixed(2)}mg</div> : null}
+                            {food.vitamin_b6 ? <div>ビタミンB6: {food.vitamin_b6.toFixed(2)}mg</div> : null}
+                            {food.vitamin_b12 ? <div>ビタミンB12: {food.vitamin_b12.toFixed(1)}μg</div> : null}
+                            {food.calcium ? <div>カルシウム: {food.calcium.toFixed(0)}mg</div> : null}
+                            {food.iron ? <div>鉄: {food.iron.toFixed(1)}mg</div> : null}
+                            {food.potassium ? <div>カリウム: {food.potassium.toFixed(0)}mg</div> : null}
+                            {food.magnesium ? <div>マグネシウム: {food.magnesium.toFixed(0)}mg</div> : null}
+                            {food.zinc ? <div>亜鉛: {food.zinc.toFixed(1)}mg</div> : null}
+                            {food.choline ? <div>コリン: {food.choline.toFixed(0)}mg</div> : null}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -734,51 +961,142 @@ export default function Home() {
                 <p className="text-slate-400 text-xs text-center py-4">データ不足</p>
               )}
             </div>
+
+            {/* ミクロ栄養素の横棒グラフ */}
+            {(totals.vitamin_a || totals.vitamin_c || totals.calcium || totals.iron || totals.potassium) ? (
+              <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
+                <h2 className="font-semibold mb-3 text-slate-700">本日のミクロ栄養素</h2>
+                <div className="space-y-2">
+                  {[
+                    { label: 'ビタミンA', value: totals.vitamin_a || 0, unit: 'μg', color: '#f59e0b' },
+                    { label: 'ビタミンC', value: totals.vitamin_c || 0, unit: 'mg', color: '#10b981' },
+                    { label: 'ビタミンD', value: totals.vitamin_d || 0, unit: 'μg', color: '#3b82f6' },
+                    { label: 'ビタミンE', value: totals.vitamin_e || 0, unit: 'mg', color: '#8b5cf6' },
+                    { label: 'ビタミンB1', value: totals.vitamin_b1 || 0, unit: 'mg', color: '#ec4899' },
+                    { label: 'ビタミンB2', value: totals.vitamin_b2 || 0, unit: 'mg', color: '#f43f5e' },
+                    { label: 'ビタミンB6', value: totals.vitamin_b6 || 0, unit: 'mg', color: '#06b6d4' },
+                    { label: 'ビタミンB12', value: totals.vitamin_b12 || 0, unit: 'μg', color: '#8b5cf6' },
+                    { label: 'カルシウム', value: totals.calcium || 0, unit: 'mg', color: '#64748b' },
+                    { label: '鉄', value: totals.iron || 0, unit: 'mg', color: '#ef4444' },
+                    { label: 'カリウム', value: totals.potassium || 0, unit: 'mg', color: '#84cc16' },
+                    { label: 'マグネシウム', value: totals.magnesium || 0, unit: 'mg', color: '#06b6d4' },
+                    { label: '亜鉛', value: totals.zinc || 0, unit: 'mg', color: '#f97316' },
+                    { label: 'コリン', value: totals.choline || 0, unit: 'mg', color: '#6366f1' },
+                  ].filter(item => item.value > 0).map((item) => {
+                    const maxValue = Math.max(...[
+                      totals.vitamin_a || 0,
+                      totals.vitamin_c || 0,
+                      totals.calcium || 0,
+                      totals.iron || 0,
+                      totals.potassium || 0,
+                      totals.magnesium || 0,
+                      totals.zinc || 0,
+                      totals.choline || 0
+                    ]);
+                    const percentage = maxValue > 0 ? (item.value / maxValue) * 100 : 0;
+                    
+                    return (
+                      <div key={item.label} className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-600">{item.label}</span>
+                          <span className="font-medium text-slate-800">{item.value.toFixed(1)} {item.unit}</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-300"
+                            style={{
+                              width: `${percentage}%`,
+                              backgroundColor: item.color
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
 
         {/* 統計タブ */}
         {activeTab === 'stats' && (
-          <div className="space-y-4">
-            <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-semibold text-slate-700">集計範囲</h2>
-                <select
-                  value={statsDays}
-                  onChange={(e) => setStatsDays(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-                  className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                >
-                  <option value={7}>7日</option>
-                  <option value={30}>30日</option>
-                  <option value={90}>90日</option>
-                  <option value={180}>半年</option>
-                  <option value={365}>1年</option>
-                  <option value="all">全ての期間</option>
-                </select>
-              </div>
-              <div className="space-y-2 text-sm text-slate-700">
-                <div>
-                  累計カロリー収支:{' '}
-                  <span className={`font-bold ${calDeficit > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    {calDeficit > 0 ? '+' : ''}{calDeficit.toFixed(0)}
-                  </span>{' '}
-                  kcal
-                </div>
-                <div className="text-xs">
-                  PFC差分:{' '}
-                  <span className={pDiff >= 0 ? 'text-green-600' : 'text-red-600'}>P {pDiff >= 0 ? '+' : ''}{pDiff.toFixed(1)}g</span>
-                  {' '}・{' '}
-                  <span className={fDiff > 0 ? 'text-red-600' : 'text-green-600'}>F {fDiff > 0 ? '+' : ''}{fDiff.toFixed(1)}g</span>
-                  {' '}・{' '}
-                  <span className={cDiff > 0 ? 'text-red-600' : 'text-green-600'}>C {cDiff > 0 ? '+' : ''}{cDiff.toFixed(1)}g</span>
-                </div>
-              </div>
-            </div>
+          <div className="space-y-4" key={`stats-${statsValue}-${statsUnit}-${isAllPeriod}`}>
+            {(() => {
+              // 統計タブ内で累計を計算
+              const totalCalories = statsCalorieDays.reduce((acc, d) => acc + d.total_calories, 0);
+              const totalProtein = statsCalorieDays.reduce((acc, d) => acc + (d.total_protein || 0), 0);
+              const totalFat = statsCalorieDays.reduce((acc, d) => acc + (d.total_fat || 0), 0);
+              const totalCarbs = statsCalorieDays.reduce((acc, d) => acc + (d.total_carbs || 0), 0);
+              
+              const numDays = statsCalorieDays.length;
+              const maintenanceTotal = numDays * (baseConfig.base_calories || 0);
+              const maintenanceProteinTotal = numDays * (baseConfig.base_protein || 0);
+              const maintenanceFatTotal = numDays * (baseConfig.base_fat || 0);
+              const maintenanceCarbsTotal = numDays * (baseConfig.base_carbs || 0);
+              
+              const calDeficit = totalCalories - maintenanceTotal;
+              const pDiff = totalProtein - maintenanceProteinTotal;
+              const fDiff = totalFat - maintenanceFatTotal;
+              const cDiff = totalCarbs - maintenanceCarbsTotal;
+
+              return (
+                <>
+                  <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
+                    <div className="mb-4">
+                      <h2 className="font-semibold text-slate-700 mb-3">集計範囲</h2>
+                      <div className="flex gap-2 items-center mb-2">
+                        <input
+                          type="number"
+                          min="1"
+                          value={statsValue}
+                          onChange={(e) => setStatsValue(parseInt(e.target.value) || 1)}
+                          className="w-20 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        />
+                        <select
+                          value={statsUnit}
+                          onChange={(e) => setStatsUnit(e.target.value as 'days' | 'months' | 'years')}
+                          className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                        >
+                          <option value="days">日</option>
+                          <option value="months">ヶ月</option>
+                          <option value="years">年</option>
+                        </select>
+                        <button
+                          onClick={() => setIsAllPeriod(!isAllPeriod)}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                            isAllPeriod
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
+                        >
+                          全期間
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-2 text-sm text-slate-700">
+                      <div>
+                        累計カロリー収支:{' '}
+                        <span className={`font-bold ${calDeficit > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          {calDeficit > 0 ? '+' : ''}{calDeficit.toFixed(0)}
+                        </span>{' '}
+                        kcal
+                      </div>
+                      <div className="text-xs">
+                        PFC差分:{' '}
+                        <span className={pDiff >= 0 ? 'text-green-600' : 'text-red-600'}>P {pDiff >= 0 ? '+' : ''}{pDiff.toFixed(1)}g</span>
+                        {' '}・{' '}
+                        <span className={fDiff > 0 ? 'text-red-600' : 'text-green-600'}>F {fDiff > 0 ? '+' : ''}{fDiff.toFixed(1)}g</span>
+                        {' '}・{' '}
+                        <span className={cDiff > 0 ? 'text-red-600' : 'text-green-600'}>C {cDiff > 0 ? '+' : ''}{cDiff.toFixed(1)}g</span>
+                      </div>
+                    </div>
+                  </div>
 
             <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
               <h2 className="font-semibold mb-3 text-slate-700">体重推移</h2>
               {statsWeightDays.length > 0 ? (
-                <div className="h-48">
+                <div className="h-48" key={`weight-${statsValue}-${statsUnit}-${isAllPeriod}`}>
                   <ResponsiveContainer>
                     <LineChart data={statsWeightDays}>
                       <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v) => v.slice(5)} />
@@ -793,10 +1111,29 @@ export default function Home() {
               )}
             </div>
 
+            {/* 睡眠推移グラフ */}
+            <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
+              <h2 className="font-semibold mb-3 text-slate-700">睡眠推移</h2>
+              {statsWeightDays.length > 0 ? (
+                <div className="h-48" key={`sleep-${statsValue}-${statsUnit}-${isAllPeriod}`}>
+                  <ResponsiveContainer>
+                    <LineChart data={statsWeightDays}>
+                      <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v) => v.slice(5)} />
+                      <YAxis tick={{ fontSize: 10 }} domain={[0, 'dataMax + 2']} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="sleep_hours" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-slate-400 text-sm text-center py-8">データ不足</p>
+              )}
+            </div>
+
             <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
               <h2 className="font-semibold mb-3 text-slate-700">カロリー推移</h2>
               {statsCalorieDays.length > 0 ? (
-                <div className="h-48">
+                <div className="h-48" key={`calories-${statsValue}-${statsUnit}-${isAllPeriod}`}>
                   <ResponsiveContainer>
                     <LineChart data={statsCalorieDays}>
                       <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v) => v.slice(5)} />
@@ -810,6 +1147,198 @@ export default function Home() {
                 <p className="text-slate-400 text-sm text-center py-8">データ不足</p>
               )}
             </div>
+
+            {/* PFC推移グラフ */}
+            <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
+              <h2 className="font-semibold mb-3 text-slate-700">PFC推移</h2>
+              {statsCalorieDays.length > 0 ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-xs font-medium text-green-600 mb-1">タンパク質 (g)</h3>
+                    <div className="h-32" key={`protein-${statsValue}-${statsUnit}-${isAllPeriod}`}>
+                      <ResponsiveContainer>
+                        <LineChart data={statsCalorieDays}>
+                          <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v) => v.slice(5)} />
+                          <YAxis tick={{ fontSize: 9 }} domain={[0, 'dataMax + 20']} />
+                          <Tooltip />
+                          <Line type="monotone" dataKey="total_protein" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-medium text-yellow-600 mb-1">脂質 (g)</h3>
+                    <div className="h-32" key={`fat-${statsValue}-${statsUnit}-${isAllPeriod}`}>
+                      <ResponsiveContainer>
+                        <LineChart data={statsCalorieDays}>
+                          <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v) => v.slice(5)} />
+                          <YAxis tick={{ fontSize: 9 }} domain={[0, 'dataMax + 10']} />
+                          <Tooltip />
+                          <Line type="monotone" dataKey="total_fat" stroke="#f59e0b" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-medium text-blue-600 mb-1">炭水化物 (g)</h3>
+                    <div className="h-32" key={`carbs-${statsValue}-${statsUnit}-${isAllPeriod}`}>
+                      <ResponsiveContainer>
+                        <LineChart data={statsCalorieDays}>
+                          <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v) => v.slice(5)} />
+                          <YAxis tick={{ fontSize: 9 }} domain={[0, 'dataMax + 20']} />
+                          <Tooltip />
+                          <Line type="monotone" dataKey="total_carbs" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-slate-400 text-sm text-center py-8">データ不足</p>
+              )}
+            </div>
+
+            {/* PFC円グラフ */}
+            <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
+              <h2 className="font-semibold mb-3 text-slate-700">PFCバランス</h2>
+              {statsCalorieDays.length > 0 ? (
+                (() => {
+                  const totalP = statsCalorieDays.reduce((acc, d) => acc + (d.total_protein || 0), 0);
+                  const totalF = statsCalorieDays.reduce((acc, d) => acc + (d.total_fat || 0), 0);
+                  const totalC = statsCalorieDays.reduce((acc, d) => acc + (d.total_carbs || 0), 0);
+                  const totalCal = statsCalorieDays.reduce((acc, d) => acc + (d.total_calories || 0), 0);
+                  
+                  const pieData = [
+                    { name: 'タンパク質', value: totalP, color: '#10b981' },
+                    { name: '脂質', value: totalF, color: '#f59e0b' },
+                    { name: '炭水化物', value: totalC, color: '#3b82f6' },
+                  ];
+
+                  return (
+                    <div>
+                      <div className="h-64" key={`pie-${statsValue}-${statsUnit}-${isAllPeriod}`}>
+                        <ResponsiveContainer>
+                          <PieChart>
+                            <Pie
+                              data={pieData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={60}
+                              outerRadius={90}
+                              dataKey="value"
+                              label={({ name, value }) => `${name}: ${value.toFixed(0)}g`}
+                              labelLine={false}
+                            >
+                              {pieData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                              ))}
+                              <Label
+                                value={`${totalCal.toFixed(0)} kcal`}
+                                position="center"
+                                style={{ fontSize: '20px', fontWeight: 'bold', fill: '#334155' }}
+                              />
+                            </Pie>
+                            <Tooltip formatter={(value) => `${(value as number).toFixed(1)}g`} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 mt-2 text-center text-xs">
+                        <div>
+                          <div className="font-medium text-green-600">P: {totalP.toFixed(1)}g</div>
+                        </div>
+                        <div>
+                          <div className="font-medium text-yellow-600">F: {totalF.toFixed(1)}g</div>
+                        </div>
+                        <div>
+                          <div className="font-medium text-blue-600">C: {totalC.toFixed(1)}g</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <p className="text-slate-400 text-sm text-center py-8">データ不足</p>
+              )}
+            </div>
+
+            {/* 統計画面のミクロ栄養素集計 */}
+            <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
+              <h2 className="font-semibold mb-3 text-slate-700">ミクロ栄養素合計</h2>
+              {statsCalorieDays.length > 0 ? (
+                (() => {
+                  const microTotals = {
+                    vitamin_a: statsCalorieDays.reduce((acc, d) => acc + (d.total_vitamin_a || 0), 0),
+                    vitamin_c: statsCalorieDays.reduce((acc, d) => acc + (d.total_vitamin_c || 0), 0),
+                    vitamin_d: statsCalorieDays.reduce((acc, d) => acc + (d.total_vitamin_d || 0), 0),
+                    vitamin_e: statsCalorieDays.reduce((acc, d) => acc + (d.total_vitamin_e || 0), 0),
+                    vitamin_b1: statsCalorieDays.reduce((acc, d) => acc + (d.total_vitamin_b1 || 0), 0),
+                    vitamin_b2: statsCalorieDays.reduce((acc, d) => acc + (d.total_vitamin_b2 || 0), 0),
+                    vitamin_b6: statsCalorieDays.reduce((acc, d) => acc + (d.total_vitamin_b6 || 0), 0),
+                    vitamin_b12: statsCalorieDays.reduce((acc, d) => acc + (d.total_vitamin_b12 || 0), 0),
+                    calcium: statsCalorieDays.reduce((acc, d) => acc + (d.total_calcium || 0), 0),
+                    iron: statsCalorieDays.reduce((acc, d) => acc + (d.total_iron || 0), 0),
+                    potassium: statsCalorieDays.reduce((acc, d) => acc + (d.total_potassium || 0), 0),
+                    magnesium: statsCalorieDays.reduce((acc, d) => acc + (d.total_magnesium || 0), 0),
+                    zinc: statsCalorieDays.reduce((acc, d) => acc + (d.total_zinc || 0), 0),
+                    choline: statsCalorieDays.reduce((acc, d) => acc + (d.total_choline || 0), 0),
+                  };
+
+                  const microData = [
+                    { label: 'ビタミンA', value: microTotals.vitamin_a, unit: 'μg', color: '#f59e0b' },
+                    { label: 'ビタミンC', value: microTotals.vitamin_c, unit: 'mg', color: '#10b981' },
+                    { label: 'ビタミンD', value: microTotals.vitamin_d, unit: 'μg', color: '#3b82f6' },
+                    { label: 'ビタミンE', value: microTotals.vitamin_e, unit: 'mg', color: '#8b5cf6' },
+                    { label: 'ビタミンB1', value: microTotals.vitamin_b1, unit: 'mg', color: '#ec4899' },
+                    { label: 'ビタミンB2', value: microTotals.vitamin_b2, unit: 'mg', color: '#f43f5e' },
+                    { label: 'ビタミンB6', value: microTotals.vitamin_b6, unit: 'mg', color: '#06b6d4' },
+                    { label: 'ビタミンB12', value: microTotals.vitamin_b12, unit: 'μg', color: '#8b5cf6' },
+                    { label: 'カルシウム', value: microTotals.calcium, unit: 'mg', color: '#64748b' },
+                    { label: '鉄', value: microTotals.iron, unit: 'mg', color: '#ef4444' },
+                    { label: 'カリウム', value: microTotals.potassium, unit: 'mg', color: '#84cc16' },
+                    { label: 'マグネシウム', value: microTotals.magnesium, unit: 'mg', color: '#06b6d4' },
+                    { label: '亜鉛', value: microTotals.zinc, unit: 'mg', color: '#f97316' },
+                    { label: 'コリン', value: microTotals.choline, unit: 'mg', color: '#6366f1' },
+                  ].filter(item => item.value > 0);
+
+                  if (microData.length === 0) {
+                    return <p className="text-slate-400 text-sm text-center py-8">ミクロ栄養素データなし</p>;
+                  }
+
+                  const maxValue = Math.max(...microData.map(item => item.value));
+
+                  return (
+                    <div className="space-y-2">
+                      {microData.map((item) => {
+                        const percentage = maxValue > 0 ? (item.value / maxValue) * 100 : 0;
+                        
+                        return (
+                          <div key={item.label} className="space-y-1">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-slate-600">{item.label}</span>
+                              <span className="font-medium text-slate-800">{item.value.toFixed(1)} {item.unit}</span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all duration-300"
+                                style={{
+                                  width: `${percentage}%`,
+                                  backgroundColor: item.color
+                                }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
+              ) : (
+                <p className="text-slate-400 text-sm text-center py-8">データ不足</p>
+              )}
+            </div>
+                </>
+              );
+            })()}
           </div>
         )}
 
@@ -947,31 +1476,96 @@ export default function Home() {
       {/* 設定モーダル */}
       {showConfigModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
-            <h2 className="text-lg font-bold mb-4">ベースカロリー設定</h2>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-700 mb-2">除脂肪体重 (kg)</label>
-              <input
-                type="number"
-                step="0.1"
-                value={leanBodyMass}
-                onChange={(e) => setLeanBodyMass(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="66.0"
-              />
-            </div>
-            {baseConfig.base_calories !== null && (
-              <div className="bg-slate-50 rounded-lg p-3 mb-4 text-sm">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-800">
-                    {baseConfig.base_calories} <span className="text-sm text-slate-500">kcal</span>
-                  </div>
-                  <div className="mt-1 text-xs text-slate-600">
-                    P: {baseConfig.base_protein}g ・ F: {baseConfig.base_fat}g ・ C: {baseConfig.base_carbs}g
-                  </div>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-lg font-bold mb-4">設定</h2>
+            
+            {/* PFCバランス設定 */}
+            <div className="mb-6">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">PFCバランス（目標値）</h3>
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs text-slate-600 mb-1">除脂肪体重 (kg)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={leanBodyMass}
+                    onChange={(e) => setLeanBodyMass(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="66.0"
+                  />
                 </div>
               </div>
+            </div>
+
+            {/* 基礎代謝設定 */}
+            <div className="mb-4">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">基礎代謝（消費カロリー計算用）</h3>
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs text-slate-600 mb-1">身長 (cm)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={height}
+                    onChange={(e) => setHeight(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="170.0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 mb-1">体重 (kg)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={weight}
+                    onChange={(e) => setWeight(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="70.0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-600 mb-1">年齢 (歳)</label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={age}
+                    onChange={(e) => setAge(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="30"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 計算結果表示 */}
+            {(baseConfig.base_calories !== null || baseConfig.basal_metabolic_rate !== null) && (
+              <div className="bg-slate-50 rounded-lg p-3 mb-4 text-sm space-y-2">
+                {baseConfig.base_calories !== null && (
+                  <div>
+                    <div className="text-xs text-slate-600 mb-1">目標カロリー・PFC</div>
+                    <div className="text-center">
+                      <div className="text-xl font-bold text-slate-800">
+                        {baseConfig.base_calories} <span className="text-xs text-slate-500">kcal</span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-600">
+                        P: {baseConfig.base_protein}g ・ F: {baseConfig.base_fat}g ・ C: {baseConfig.base_carbs}g
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {baseConfig.basal_metabolic_rate !== null && (
+                  <div>
+                    <div className="text-xs text-slate-600 mb-1">基礎代謝</div>
+                    <div className="text-center">
+                      <div className="text-xl font-bold text-green-600">
+                        {baseConfig.basal_metabolic_rate} <span className="text-xs text-slate-500">kcal/日</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
+
             <div className="flex gap-2">
               <button
                 onClick={() => setShowConfigModal(false)}
@@ -981,10 +1575,10 @@ export default function Home() {
               </button>
               <button
                 onClick={handleSaveConfig}
-                disabled={!leanBodyMass}
+                disabled={!leanBodyMass && (!height || !weight || !age)}
                 className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg py-2 font-medium hover:shadow-lg transition-all disabled:opacity-50"
               >
-                計算
+                保存
               </button>
             </div>
           </div>
