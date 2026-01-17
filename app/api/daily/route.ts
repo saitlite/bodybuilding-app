@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
         date,
         weight_am: null,
         weight_pm: null,
+        memo: null,
       });
     }
 
@@ -29,6 +30,7 @@ export async function GET(request: NextRequest) {
       date: row.date,
       weight_am: row.weight_am,
       weight_pm: row.weight_pm,
+      memo: row.memo,
     });
   }
 
@@ -62,7 +64,7 @@ export async function GET(request: NextRequest) {
 // POST /api/daily  { date, weight_am?, weight_pm? }
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { date, weight_am, weight_pm } = body;
+  const { date, weight_am, weight_pm, memo } = body;
 
   if (!date) {
     return NextResponse.json({ error: 'dateは必須です' }, { status: 400 });
@@ -76,17 +78,18 @@ export async function POST(request: NextRequest) {
   if (existing) {
     // 更新
     db.prepare(
-      'UPDATE daily_records SET weight_am = ?, weight_pm = ? WHERE date = ?'
+      'UPDATE daily_records SET weight_am = ?, weight_pm = ?, memo = ? WHERE date = ?'
     ).run(
       weight_am ?? existing.weight_am,
       weight_pm ?? existing.weight_pm,
+      memo ?? existing.memo,
       date
     );
   } else {
     // 新規作成
     db.prepare(
-      'INSERT INTO daily_records (date, weight_am, weight_pm) VALUES (?, ?, ?)'
-    ).run(date, weight_am ?? null, weight_pm ?? null);
+      'INSERT INTO daily_records (date, weight_am, weight_pm, memo) VALUES (?, ?, ?, ?)'
+    ).run(date, weight_am ?? null, weight_pm ?? null, memo ?? null);
   }
 
   return NextResponse.json({ success: true });
