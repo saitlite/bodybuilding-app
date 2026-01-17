@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 
-// 計算関数
+// 基礎代謝計算関数（身長・体重・年齢から）
+// 10 × 体重(kg) + 6.25 × 身長(cm) - 5 × 年齢
+function calculateBasalMetabolicRate(weight: number, height: number, age: number) {
+  return 10 * weight + 6.25 * height - 5 * age;
+}
+
+// PFCバランス計算関数（除脂肪体重から）
 function calculateBase(leanBodyMass: number) {
   const calories = leanBodyMass * 45;
   const protein = leanBodyMass * 3;
@@ -23,6 +29,10 @@ export async function GET() {
   if (!row) {
     return NextResponse.json({
       lean_body_mass: null,
+      height: null,
+      weight: null,
+      age: null,
+      basal_metabolic_rate: null,
       base_calories: null,
       base_protein: null,
       base_fat: null,
@@ -30,8 +40,18 @@ export async function GET() {
     });
   }
 
+  // 身長・体重・年齢があれば基礎代謝を計算
+  let basalMetabolicRate = null;
+  if (row.height && row.weight && row.age) {
+    basalMetabolicRate = Math.round(calculateBasalMetabolicRate(row.weight, row.height, row.age));
+  }
+
   return NextResponse.json({
     lean_body_mass: row.lean_body_mass,
+    height: row.height,
+    weight: row.weight,
+    age: row.age,
+    basal_metabolic_rate: basalMetabolicRate,
     base_calories: row.base_calories,
     base_protein: row.base_protein,
     base_fat: row.base_fat,
@@ -39,35 +59,81 @@ export async function GET() {
   });
 }
 
-// POST /api/config { lean_body_mass: number }
+// POST /api/config
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { lean_body_mass } = body;
+  const { lean_body_mass, height, weight, age } = body;
 
-  if (!lean_body_mass || lean_body_mass <= 0) {
-    return NextResponse.json({ error: '除脂肪体重を正しく入力してください' }, { status: 400 });
+  // 除脂肪体重が提供された場合、PFCとベースカロリーを計算
+  let base = null;
+  if (lean_body_mass && lean_body_mass > 0) {
+    base = calculateBase(lean_body_mass);
   }
 
-  const base = calculateBase(lean_body_mass);
+  // 基礎代謝は身長・体重・年齢から計算
+  let basalMetabolicRate = null;
+  if (height && height > 0 && weight && weight > 0 && age && age > 0) {
+    basalMetabolicRate = Math.round(calculateBasalMetabolicRate(weight, height, age));
+  }
 
-  // UPSERT（あれば更新、なければ挿入）
+  // UPSERT
   const existing = db.prepare('SELECT * FROM user_config WHERE id = 1').get();
 
   if (existing) {
-    db.prepare(`
-      UPDATE user_config 
-      SET lean_body_mass = ?, base_calories = ?, base_protein = ?, base_fat = ?, base_carbs = ?, updated_at = datetime('now')
-      WHERE id = 1
-    `).run(lean_body_mass, base.calories, base.protein, base.fat, base.carbs);
+    // 更新: 提供されたフィールドのみ更新
+    const updates: string[] = [];
+    const values: any[] = [];
+    
+    if (lean_body_mass !== undefined) {
+      updates.push('lean_body_mass = ?');
+      values.push(lean_body_mass);
+    }
+    if (height !== undefined) {
+      updates.push('height = ?');
+      values.push(height);
+    }
+    if (weight !== undefined) {
+      updates.push('weight = ?');
+      values.push(weight);
+    }
+    if (age !== undefined) {
+      updates.push('age = ?');
+      values.push(age);
+    }
+    if (base) {
+      updates.push('base_calories = ?', 'base_protein = ?', 'base_fat = ?', 'base_carbs = ?');
+      values.push(base.calories, base.protein, base.fat, base.carbs);
+    }
+    
+    updates.push('updated_at = datetime(\'now\')');
+    values.push(1); // WHERE id = 1
+    
+    if (updates.length > 1) { // updated_at 以外にも更新がある場合
+      db.prepare(`UPDATE user_config SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    }
   } else {
+    // 新規挿入
     db.prepare(`
-      INSERT INTO user_config (id, lean_body_mass, base_calories, base_protein, base_fat, base_carbs)
-      VALUES (1, ?, ?, ?, ?, ?)
-    `).run(lean_body_mass, base.calories, base.protein, base.fat, base.carbs);
+      INSERT INTO user_config (id, lean_body_mass, height, weight, age, base_calories, base_protein, base_fat, base_carbs)
+      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      lean_body_mass || null,
+      height || null,
+      weight || null,
+      age || null,
+      base?.calories || null,
+      base?.protein || null,
+      base?.fat || null,
+      base?.carbs || null
+    );
   }
 
   return NextResponse.json({
-    lean_body_mass,
-    ...base,
+    lean_body_mass: lean_body_mass || null,
+    height: height || null,
+    weight: weight || null,
+    age: age || null,
+    basal_metabolic_rate: basalMetabolicRate,
+    ...(base || {}),
   });
 }

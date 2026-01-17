@@ -12,6 +12,20 @@ const notoSansJp = Noto_Sans_JP({
 export const metadata: Metadata = {
   title: "減量管理",
   description: "カロリー収支アプリ",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "減量管理",
+  },
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#3b82f6",
 };
 
 export default function RootLayout({
@@ -21,6 +35,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ja" suppressHydrationWarning>
+      <head>
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+      </head>
       <body
         suppressHydrationWarning
         className={`${notoSansJp.variable} antialiased`}

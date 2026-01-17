@@ -69,20 +69,82 @@ db.exec(`
   INSERT OR IGNORE INTO _schema_version (version) VALUES (0);
 `);
 
-// メモカラム追加マイグレーション
+// マイグレーション処理
 const version = (db.prepare('SELECT version FROM _schema_version').get() as any)?.version || 0;
 
+// v1: メモカラム追加
 if (version < 1) {
   try {
     db.prepare('ALTER TABLE daily_records ADD COLUMN memo TEXT').run();
     console.log('✅ メモカラムを追加しました');
   } catch (e: any) {
-    // カラムが既に存在する場合はエラーを無視
     if (!e.message.includes('duplicate column name')) {
       throw e;
     }
   }
   db.prepare('UPDATE _schema_version SET version = 1').run();
+}
+
+// v2: ミクロ栄養素カラム追加
+if (version < 2) {
+  const micronutrients = [
+    'vitamin_a',
+    'vitamin_c',
+    'vitamin_d',
+    'vitamin_e',
+    'vitamin_b1',
+    'vitamin_b2',
+    'vitamin_b6',
+    'vitamin_b12',
+    'calcium',
+    'iron',
+    'potassium',
+    'magnesium',
+    'zinc',
+    'choline'
+  ];
+
+  for (const nutrient of micronutrients) {
+    try {
+      db.prepare(`ALTER TABLE food_logs ADD COLUMN ${nutrient} REAL`).run();
+      db.prepare(`ALTER TABLE food_cache ADD COLUMN ${nutrient} REAL`).run();
+    } catch (e: any) {
+      if (!e.message.includes('duplicate column name')) {
+        throw e;
+      }
+    }
+  }
+  console.log('✅ ミクロ栄養素カラムを追加しました');
+  db.prepare('UPDATE _schema_version SET version = 2').run();
+}
+
+// v3: 睡眠時間・有酸素運動時間カラム追加
+if (version < 3) {
+  try {
+    db.prepare('ALTER TABLE daily_records ADD COLUMN sleep_hours REAL').run();
+    db.prepare('ALTER TABLE daily_records ADD COLUMN cardio_minutes REAL').run();
+    console.log('✅ 睡眠時間・有酸素運動時間カラムを追加しました');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) {
+      throw e;
+    }
+  }
+  db.prepare('UPDATE _schema_version SET version = 3').run();
+}
+
+// v4: 身長・体重・年齢カラム追加
+if (version < 4) {
+  try {
+    db.prepare('ALTER TABLE user_config ADD COLUMN height REAL').run();
+    db.prepare('ALTER TABLE user_config ADD COLUMN weight REAL').run();
+    db.prepare('ALTER TABLE user_config ADD COLUMN age INTEGER').run();
+    console.log('✅ 身長・体重・年齢カラムを追加しました');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) {
+      throw e;
+    }
+  }
+  db.prepare('UPDATE _schema_version SET version = 4').run();
 }
 
 export default db;
