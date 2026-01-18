@@ -88,10 +88,19 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     console.log('Request body:', body);
-    const { message, date, role = 'kanade' } = body;
+    const { message, date, role = 'kanade', roomId } = body;
 
     if (!message) {
       return NextResponse.json({ error: 'メッセージは必須です' }, { status: 400 });
+    }
+
+    // 過去の会話履歴を取得（直近20件）
+    let conversationHistory: any[] = [];
+    if (roomId) {
+      conversationHistory = await db.all(
+        'SELECT role, content FROM chat_messages WHERE room_id = ? ORDER BY created_at ASC LIMIT 20',
+        [roomId]
+      ) as any[];
     }
 
     // 現在のデータを取得（要約用）
@@ -160,6 +169,43 @@ ${config ? `- 目標カロリー: ${config.base_calories} kcal, P ${config.base_
       return NextResponse.json({ error: '環境変数が未設定です' }, { status: 500 });
     }
 
+    // メッセージ配列を構築
+    let systemPrompt = ROLE_PROMPTS[role] || ROLE_PROMPTS['kanade'];
+    
+    // 会話履歴が15件を超える場合は要約を含める
+    if (conversationHistory.length > 15) {
+      const summaryContent = conversationHistory.slice(0, -5).map(msg =>
+        `${msg.role === 'user' ? 'ユーザー' : 'AI'}: ${msg.content}`
+      ).join('\n');
+      
+      systemPrompt += `\n\n【過去の会話要約】\n${summaryContent}\n\n※上記は要約された過去の会話です。以降の会話履歴は最新5件です。`;
+    }
+
+    const messages: any[] = [
+      {
+        role: 'system',
+        content: systemPrompt,
+      }
+    ];
+
+    // 会話履歴を追加（15件超の場合は最新5件のみ、それ以外は全件）
+    const historyToInclude = conversationHistory.length > 15
+      ? conversationHistory.slice(-5)
+      : conversationHistory;
+    
+    historyToInclude.forEach(msg => {
+      messages.push({
+        role: msg.role,
+        content: msg.content
+      });
+    });
+
+    // 現在のコンテキストと質問を追加
+    messages.push({
+      role: 'user',
+      content: `${contextSummary}\n\n質問: ${message}`,
+    });
+
     const response = await fetch(process.env.AZURE_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -167,16 +213,7 @@ ${config ? `- 目標カロリー: ${config.base_calories} kcal, P ${config.base_
         'api-key': process.env.AZURE_API_KEY,
       },
       body: JSON.stringify({
-        messages: [
-          {
-            role: 'system',
-            content: ROLE_PROMPTS[role] || ROLE_PROMPTS['kanade'],
-          },
-          {
-            role: 'user',
-            content: `${contextSummary}\n\n質問: ${message}`,
-          },
-        ],
+        messages,
         max_completion_tokens: 300,
         temperature: 0.7,
       }),
