@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import db from '@/lib/db-wrapper';
 
 // 基礎代謝計算関数（身長・体重・年齢から）
 // 10 × 体重(kg) + 6.25 × 身長(cm) - 5 × 年齢
@@ -24,7 +24,7 @@ function calculateBase(leanBodyMass: number) {
 
 // GET /api/config
 export async function GET() {
-  const row = db.prepare('SELECT * FROM user_config WHERE id = 1').get() as any;
+  const row = await db.get('SELECT * FROM user_config WHERE id = 1', []) as any;
 
   if (!row) {
     return NextResponse.json({
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
   }
 
   // UPSERT
-  const existing = db.prepare('SELECT * FROM user_config WHERE id = 1').get();
+  const existing = await db.get('SELECT * FROM user_config WHERE id = 1', []);
 
   if (existing) {
     // 更新: 提供されたフィールドのみ更新
@@ -105,18 +105,18 @@ export async function POST(request: NextRequest) {
       values.push(base.calories, base.protein, base.fat, base.carbs);
     }
     
-    updates.push('updated_at = datetime(\'now\')');
+    updates.push('updated_at = CURRENT_TIMESTAMP');
     values.push(1); // WHERE id = 1
     
     if (updates.length > 1) { // updated_at 以外にも更新がある場合
-      db.prepare(`UPDATE user_config SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      await db.execute(`UPDATE user_config SET ${updates.join(', ')} WHERE id = ?`, values);
     }
   } else {
     // 新規挿入
-    db.prepare(`
+    await db.execute(`
       INSERT INTO user_config (id, lean_body_mass, height, weight, age, base_calories, base_protein, base_fat, base_carbs)
       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       lean_body_mass || null,
       height || null,
       weight || null,
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
       base?.protein || null,
       base?.fat || null,
       base?.carbs || null
-    );
+    ]);
   }
 
   return NextResponse.json({

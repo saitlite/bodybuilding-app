@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import db from '@/lib/db-wrapper';
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl;
@@ -8,9 +8,7 @@ export async function GET(request: NextRequest) {
 
   // パターン1: date指定 → その日の食材一覧と合計
   if (date) {
-    const foods = db
-      .prepare('SELECT * FROM food_logs WHERE date = ? ORDER BY created_at DESC')
-      .all(date);
+    const foods = await db.all('SELECT * FROM food_logs WHERE date = ? ORDER BY created_at DESC', [date]);
 
     const totals = (foods as any[]).reduce(
       (acc, f) => ({
@@ -57,34 +55,33 @@ export async function GET(request: NextRequest) {
     const endDateStr = today.toISOString().split('T')[0];
     const startDateStr = startDate.toISOString().split('T')[0];
 
-    const rows = db
-      .prepare(
-        `SELECT
-           date,
-           SUM(calories) as total_calories,
-           SUM(protein) as total_protein,
-           SUM(fat) as total_fat,
-           SUM(carbs) as total_carbs,
-           SUM(vitamin_a) as total_vitamin_a,
-           SUM(vitamin_c) as total_vitamin_c,
-           SUM(vitamin_d) as total_vitamin_d,
-           SUM(vitamin_e) as total_vitamin_e,
-           SUM(vitamin_b1) as total_vitamin_b1,
-           SUM(vitamin_b2) as total_vitamin_b2,
-           SUM(vitamin_b6) as total_vitamin_b6,
-           SUM(vitamin_b12) as total_vitamin_b12,
-           SUM(calcium) as total_calcium,
-           SUM(iron) as total_iron,
-           SUM(potassium) as total_potassium,
-           SUM(magnesium) as total_magnesium,
-           SUM(zinc) as total_zinc,
-           SUM(choline) as total_choline
-         FROM food_logs
-         WHERE date >= ? AND date <= ?
-         GROUP BY date
-         ORDER BY date ASC`
-      )
-      .all(startDateStr, endDateStr) as any[];
+    const rows = await db.all(
+      `SELECT
+         date,
+         SUM(calories) as total_calories,
+         SUM(protein) as total_protein,
+         SUM(fat) as total_fat,
+         SUM(carbs) as total_carbs,
+         SUM(vitamin_a) as total_vitamin_a,
+         SUM(vitamin_c) as total_vitamin_c,
+         SUM(vitamin_d) as total_vitamin_d,
+         SUM(vitamin_e) as total_vitamin_e,
+         SUM(vitamin_b1) as total_vitamin_b1,
+         SUM(vitamin_b2) as total_vitamin_b2,
+         SUM(vitamin_b6) as total_vitamin_b6,
+         SUM(vitamin_b12) as total_vitamin_b12,
+         SUM(calcium) as total_calcium,
+         SUM(iron) as total_iron,
+         SUM(potassium) as total_potassium,
+         SUM(magnesium) as total_magnesium,
+         SUM(zinc) as total_zinc,
+         SUM(choline) as total_choline
+       FROM food_logs
+       WHERE date >= ? AND date <= ?
+       GROUP BY date
+       ORDER BY date ASC`,
+      [startDateStr, endDateStr]
+    ) as any[];
 
     return NextResponse.json({
       days,
@@ -103,16 +100,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const body = await request.json();
 
-  const result = db
-    .prepare(
-      `INSERT INTO food_logs (
-        date, food_name, amount, unit, calories, protein, fat, carbs, score,
-        vitamin_a, vitamin_c, vitamin_d, vitamin_e,
-        vitamin_b1, vitamin_b2, vitamin_b6, vitamin_b12,
-        calcium, iron, potassium, magnesium, zinc, choline
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
+  const result = await db.execute(
+    `INSERT INTO food_logs (
+      date, food_name, amount, unit, calories, protein, fat, carbs, score,
+      vitamin_a, vitamin_c, vitamin_d, vitamin_e,
+      vitamin_b1, vitamin_b2, vitamin_b6, vitamin_b12,
+      calcium, iron, potassium, magnesium, zinc, choline
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
       body.date,
       body.food_name,
       body.amount,
@@ -136,7 +131,8 @@ export async function POST(request: NextRequest) {
       body.magnesium || 0,
       body.zinc || 0,
       body.choline || 0
-    );
+    ]
+  );
 
-  return NextResponse.json({ id: result.lastInsertRowid });
+  return NextResponse.json({ id: result.lastInsertId });
 }
