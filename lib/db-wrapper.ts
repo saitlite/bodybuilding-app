@@ -5,6 +5,15 @@ import path from 'path';
 // 環境変数でデータベースタイプを判定
 const USE_POSTGRES = process.env.POSTGRES_URL ? true : false;
 
+// 環境変数の状態をログ出力
+console.log('=== Database Configuration ===');
+console.log('USE_POSTGRES:', USE_POSTGRES);
+console.log('POSTGRES_URL exists:', !!process.env.POSTGRES_URL);
+console.log('POSTGRES_URL (first 30 chars):', process.env.POSTGRES_URL?.substring(0, 30) || 'undefined');
+console.log('AZURE_ENDPOINT exists:', !!process.env.AZURE_ENDPOINT);
+console.log('AZURE_API_KEY exists:', !!process.env.AZURE_API_KEY);
+console.log('=============================');
+
 // SQLite初期化
 let sqliteDb: Database.Database | null = null;
 if (!USE_POSTGRES) {

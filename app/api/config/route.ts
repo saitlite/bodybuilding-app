@@ -105,10 +105,9 @@ export async function POST(request: NextRequest) {
       values.push(base.calories, base.protein, base.fat, base.carbs);
     }
     
-    updates.push('updated_at = CURRENT_TIMESTAMP');
     values.push(1); // WHERE id = 1
     
-    if (updates.length > 1) { // updated_at 以外にも更新がある場合
+    if (updates.length > 0) { // 更新がある場合
       await db.execute(`UPDATE user_config SET ${updates.join(', ')} WHERE id = ?`, values);
     }
   } else {
@@ -134,6 +133,9 @@ export async function POST(request: NextRequest) {
     weight: weight || null,
     age: age || null,
     basal_metabolic_rate: basalMetabolicRate,
-    ...(base || {}),
+    base_calories: base?.calories || null,
+    base_protein: base?.protein || null,
+    base_fat: base?.fat || null,
+    base_carbs: base?.carbs || null,
   });
 }

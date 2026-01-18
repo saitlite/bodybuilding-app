@@ -39,7 +39,9 @@ export async function POST(
     await db.execute("UPDATE chat_rooms SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", [roomId]);
     
     // 最初のユーザーメッセージの場合、タイトルを更新
-    const messageCount = (await db.get('SELECT COUNT(*) as count FROM chat_messages WHERE room_id = ?', [roomId]) as any).count;
+    const countResult = await db.get('SELECT COUNT(*) as count FROM chat_messages WHERE room_id = ?', [roomId]) as any;
+    const messageCount = Number(countResult?.count || 0);
+    
     if (messageCount === 1 && role === 'user') {
       // 最初の30文字をタイトルにする
       const title = content.length > 30 ? content.substring(0, 30) + '...' : content;

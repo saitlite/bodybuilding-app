@@ -72,6 +72,8 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { date, weight_am, weight_pm, memo, sleep_hours, cardio_minutes } = body;
 
+  console.log('[Daily POST] Received:', { date, weight_am, weight_pm, memo, sleep_hours, cardio_minutes });
+
   if (!date) {
     return NextResponse.json({ error: 'dateは必須です' }, { status: 400 });
   }
@@ -80,20 +82,22 @@ export async function POST(request: NextRequest) {
   const existing = await db.get('SELECT * FROM daily_records WHERE date = ?', [date]) as any;
 
   if (existing) {
-    // 更新
+    // 更新: undefinedの場合のみ既存値を保持、nullは明示的に設定
+    const newWeightAm = weight_am !== undefined ? weight_am : existing.weight_am;
+    const newWeightPm = weight_pm !== undefined ? weight_pm : existing.weight_pm;
+    const newMemo = memo !== undefined ? memo : existing.memo;
+    const newSleepHours = sleep_hours !== undefined ? sleep_hours : existing.sleep_hours;
+    const newCardioMinutes = cardio_minutes !== undefined ? cardio_minutes : existing.cardio_minutes;
+    
+    console.log('[Daily POST] Updating with:', { newWeightAm, newWeightPm, newMemo, newSleepHours, newCardioMinutes });
+    
     await db.execute(
       'UPDATE daily_records SET weight_am = ?, weight_pm = ?, memo = ?, sleep_hours = ?, cardio_minutes = ? WHERE date = ?',
-      [
-        weight_am ?? existing.weight_am,
-        weight_pm ?? existing.weight_pm,
-        memo ?? existing.memo,
-        sleep_hours ?? existing.sleep_hours,
-        cardio_minutes ?? existing.cardio_minutes,
-        date
-      ]
+      [newWeightAm, newWeightPm, newMemo, newSleepHours, newCardioMinutes, date]
     );
   } else {
     // 新規作成
+    console.log('[Daily POST] Creating new record');
     await db.execute(
       'INSERT INTO daily_records (date, weight_am, weight_pm, memo, sleep_hours, cardio_minutes) VALUES (?, ?, ?, ?, ?, ?)',
       [date, weight_am ?? null, weight_pm ?? null, memo ?? null, sleep_hours ?? null, cardio_minutes ?? null]

@@ -94,6 +94,8 @@ interface ChatRoom {
 export default function Home() {
   const [activeTab, setActiveTab] = useState<'home' | 'stats' | 'ai'>('home');
   const [expandedFoodId, setExpandedFoodId] = useState<number | null>(null);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
 
   // ベースカロリー設定
   const [leanBodyMass, setLeanBodyMass] = useState('');
@@ -220,29 +222,34 @@ export default function Home() {
   };
 
   const fetchStatsData = async () => {
-    let days: number;
-    
-    if (isAllPeriod) {
-      days = 9999; // 全期間
-    } else {
-      // 単位に応じて日数に変換
-      if (statsUnit === 'days') {
-        days = statsValue;
-      } else if (statsUnit === 'months') {
-        days = statsValue * 30;
-      } else { // years
-        days = statsValue * 365;
+    setLoading(true);
+    try {
+      let days: number;
+      
+      if (isAllPeriod) {
+        days = 9999; // 全期間
+      } else {
+        // 単位に応じて日数に変換
+        if (statsUnit === 'days') {
+          days = statsValue;
+        } else if (statsUnit === 'months') {
+          days = statsValue * 30;
+        } else { // years
+          days = statsValue * 365;
+        }
       }
+      
+      const [foodsRes, dailyRes] = await Promise.all([
+        fetch(`/api/foods?days=${days}`),
+        fetch(`/api/daily?days=${days}`),
+      ]);
+      const foodsData = await foodsRes.json();
+      const dailyData = await dailyRes.json();
+      setStatsCalorieDays(foodsData.records || []);
+      setStatsWeightDays(dailyData.records || []);
+    } finally {
+      setLoading(false);
     }
-    
-    const [foodsRes, dailyRes] = await Promise.all([
-      fetch(`/api/foods?days=${days}`),
-      fetch(`/api/daily?days=${days}`),
-    ]);
-    const foodsData = await foodsRes.json();
-    const dailyData = await dailyRes.json();
-    setStatsCalorieDays(foodsData.records || []);
-    setStatsWeightDays(dailyData.records || []);
   };
 
   const fetchChatRooms = async () => {
@@ -267,8 +274,15 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    fetchData();
-    fetchDaily();
+    const loadDateData = async () => {
+      setLoading(true);
+      try {
+        await Promise.all([fetchData(), fetchDaily()]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadDateData();
   }, [date]);
 
   useEffect(() => {
@@ -278,10 +292,16 @@ export default function Home() {
   }, [activeTab, statsValue, statsUnit, isAllPeriod]);
 
   useEffect(() => {
-    if (activeTab === 'ai' && currentRoomId) {
-      fetchChatMessages(currentRoomId);
+    if (activeTab === 'ai') {
+      if (currentRoomId) {
+        fetchChatMessages(currentRoomId);
+      } else if (chatRooms.length > 0) {
+        // 最新のトークルームを自動選択
+        const latestRoom = chatRooms[0];
+        setCurrentRoomId(latestRoom.id);
+      }
     }
-  }, [activeTab, currentRoomId]);
+  }, [activeTab, currentRoomId, chatRooms]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -336,10 +356,11 @@ export default function Home() {
     setWeightAm(value);
     if (weightTimerRef.current) clearTimeout(weightTimerRef.current);
     weightTimerRef.current = setTimeout(async () => {
+      // 空文字列の場合はnullを送信（データベースから削除）
       await fetch('/api/daily', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, weight_am: value ? parseFloat(value) : null }),
+        body: JSON.stringify({ date, weight_am: value.trim() === '' ? null : parseFloat(value) }),
       });
       fetchWeightHistory();
     }, 500);
@@ -390,34 +411,43 @@ export default function Home() {
     
     if (!hasLeanBodyMass && !hasBodyMetrics) return;
     
-    const payload: any = {};
-    if (hasLeanBodyMass) payload.lean_body_mass = parseFloat(leanBodyMass);
-    if (hasBodyMetrics) {
-      payload.height = parseFloat(height);
-      payload.weight = parseFloat(weight);
-      payload.age = parseInt(age);
-    }
-    
-    const res = await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    
-    if (res.ok) {
-      const data = await res.json();
-      setBaseConfig({
-        lean_body_mass: data.lean_body_mass,
-        height: data.height,
-        weight: data.weight,
-        age: data.age,
-        basal_metabolic_rate: data.basal_metabolic_rate,
-        base_calories: data.base_calories,
-        base_protein: data.base_protein,
-        base_fat: data.base_fat,
-        base_carbs: data.base_carbs,
+    setConfigSaving(true);
+    try {
+      const payload: any = {};
+      if (hasLeanBodyMass) payload.lean_body_mass = parseFloat(leanBodyMass);
+      if (hasBodyMetrics) {
+        payload.height = parseFloat(height);
+        payload.weight = parseFloat(weight);
+        payload.age = parseInt(age);
+      }
+      
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
-      setShowConfigModal(false);
+      
+      if (res.ok) {
+        const data = await res.json();
+        setBaseConfig({
+          lean_body_mass: data.lean_body_mass,
+          height: data.height,
+          weight: data.weight,
+          age: data.age,
+          basal_metabolic_rate: data.basal_metabolic_rate,
+          base_calories: data.base_calories,
+          base_protein: data.base_protein,
+          base_fat: data.base_fat,
+          base_carbs: data.base_carbs,
+        });
+        setShowConfigModal(false);
+        
+        // 成功トーストを表示
+        setShowSuccessToast(true);
+        setTimeout(() => setShowSuccessToast(false), 3000);
+      }
+    } finally {
+      setConfigSaving(false);
     }
   };
 
@@ -426,8 +456,13 @@ export default function Home() {
   };
 
   const handleDelete = async (id: number) => {
-    await fetch(`/api/foods/${id}`, { method: 'DELETE' });
-    refreshAll();
+    setLoading(true);
+    try {
+      await fetch(`/api/foods/${id}`, { method: 'DELETE' });
+      await refreshAll();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDuplicate = async (food: Food) => {
@@ -496,17 +531,32 @@ export default function Home() {
   };
 
   const handleNewChatRoom = async () => {
-    const res = await fetch('/api/chat-rooms', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: '新しい会話' }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      await fetchChatRooms();
-      setCurrentRoomId(data.id);
-      setChatMessages([]);
-      setShowRoomList(false);
+    setLoading(true);
+    try {
+      const res = await fetch('/api/chat-rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: '新しい会話' }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        await fetchChatRooms();
+        setCurrentRoomId(data.id);
+        setChatMessages([]);
+        setShowRoomList(false);
+        
+        // 新規会話開始のアニメーション効果
+        setTimeout(() => {
+          const inputElement = document.querySelector('input[placeholder*="質問"]') as HTMLInputElement;
+          if (inputElement) {
+            inputElement.focus();
+            inputElement.classList.add('animate-pulse');
+            setTimeout(() => inputElement.classList.remove('animate-pulse'), 1000);
+          }
+        }, 100);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -518,12 +568,17 @@ export default function Home() {
   const handleDeleteRoom = async (roomId: number) => {
     if (!confirm('この会話を削除しますか？')) return;
     
-    await fetch(`/api/chat-rooms/${roomId}`, { method: 'DELETE' });
-    await fetchChatRooms();
-    
-    if (currentRoomId === roomId) {
-      setCurrentRoomId(null);
-      setChatMessages([]);
+    setLoading(true);
+    try {
+      await fetch(`/api/chat-rooms/${roomId}`, { method: 'DELETE' });
+      await fetchChatRooms();
+      
+      if (currentRoomId === roomId) {
+        setCurrentRoomId(null);
+        setChatMessages([]);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -533,7 +588,7 @@ export default function Home() {
     const userMessage = chatInput.trim();
     setChatInput('');
 
-    // ユーザーメッセージをDBに保存
+    // ユーザーメッセージをDBに保存（タイトル更新も含む）
     await fetch(`/api/chat-rooms/${currentRoomId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -544,7 +599,7 @@ export default function Home() {
     setChatMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
     setChatLoading(true);
     
-    // ルーム一覧を更新（タイトル更新のため）
+    // ルーム一覧を更新（タイトル更新を反映）- await追加
     await fetchChatRooms();
 
     try {
@@ -580,6 +635,9 @@ export default function Home() {
       });
       
       setChatMessages((prev) => [...prev, { role: 'assistant', content: aiMessage }]);
+      
+      // AIメッセージ投稿後もルーム一覧を更新
+      await fetchChatRooms();
     } catch (error) {
       console.error('Chat Error:', error);
       const errorMsg = `通信エラー: ${error instanceof Error ? error.message : '不明なエラー'}`;
@@ -896,13 +954,15 @@ export default function Home() {
                         <div className="flex gap-1">
                           <button
                             onClick={() => handleDuplicate(food)}
-                            className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors font-medium"
+                            disabled={loading}
+                            className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             複製
                           </button>
                           <button
                             onClick={() => handleDelete(food.id)}
-                            className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors font-medium"
+                            disabled={loading}
+                            className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             削除
                           </button>
@@ -1455,8 +1515,10 @@ export default function Home() {
                         handleChatSend();
                       }
                     }}
-                    placeholder={currentRoomId ? '質問を入力...' : '先に会話を作成してください'}
-                    className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder={currentRoomId ? '質問を入力...' : '「新しい会話」ボタンを押してください'}
+                    className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+                      !currentRoomId ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'border-slate-300'
+                    }`}
                     disabled={chatLoading || !currentRoomId}
                   />
                   <button
@@ -1575,12 +1637,34 @@ export default function Home() {
               </button>
               <button
                 onClick={handleSaveConfig}
-                disabled={!leanBodyMass && (!height || !weight || !age)}
-                className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg py-2 font-medium hover:shadow-lg transition-all disabled:opacity-50"
+                disabled={configSaving || (!leanBodyMass && (!height || !weight || !age))}
+                className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg py-2 font-medium hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                保存
+                {configSaving ? '保存中...' : '保存'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* 成功トースト */}
+      {showSuccessToast && (
+        <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 z-50 animate-fade-in-up">
+          <div className="bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <span className="font-medium">設定を保存しました</span>
+          </div>
+        </div>
+      )}
+      
+      {/* ローディングオーバーレイ */}
+      {(loading || configSaving) && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[60] flex items-center justify-center">
+          <div className="bg-white rounded-2xl shadow-2xl px-8 py-6 flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+            <p className="text-slate-700 font-medium">処理中...</p>
           </div>
         </div>
       )}
