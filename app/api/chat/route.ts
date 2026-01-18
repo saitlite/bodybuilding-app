@@ -67,7 +67,10 @@ ${dailyRecord?.memo ? `- メモ: ${dailyRecord.memo}` : ''}
 ${config ? `- 目標カロリー: ${config.base_calories} kcal, P ${config.base_protein} g, F ${config.base_fat} g, C ${config.base_carbs} g` : '- 未設定'}
 
 【直近7日の傾向】
-- 体重推移: ${recentWeights.map(w => `${w.date.slice(5)}: ${w.weight_am}kg`).join(', ') || 'データ不足'}
+- 体重推移: ${recentWeights.map(w => {
+  const dateStr = typeof w.date === 'string' ? w.date : w.date.toISOString().split('T')[0];
+  return `${dateStr.slice(5)}: ${w.weight_am}kg`;
+}).join(', ') || 'データ不足'}
 - カロリー平均: ${recentFoods.length > 0 ? (recentFoods.reduce((acc, d) => acc + d.total_calories, 0) / recentFoods.length).toFixed(0) : '不明'} kcal/日
 `;
 
