@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import db from '@/lib/db-wrapper';
 
 // 特定のルームのメッセージ取得
 export async function GET(
@@ -10,9 +10,7 @@ export async function GET(
     const { id } = await params;
     const roomId = parseInt(id);
     
-    const messages = db
-      .prepare('SELECT * FROM chat_messages WHERE room_id = ? ORDER BY created_at ASC')
-      .all(roomId) as any[];
+    const messages = await db.all('SELECT * FROM chat_messages WHERE room_id = ? ORDER BY created_at ASC', [roomId]) as any[];
     
     return NextResponse.json({ messages });
   } catch (error) {
@@ -35,24 +33,21 @@ export async function POST(
     const body = await request.json();
     const { role, content } = body;
 
-    const result = db
-      .prepare('INSERT INTO chat_messages (room_id, role, content) VALUES (?, ?, ?)')
-      .run(roomId, role, content);
+    const result = await db.execute('INSERT INTO chat_messages (room_id, role, content) VALUES (?, ?, ?)', [roomId, role, content]);
 
     // ルームの更新日時を更新
-    db.prepare("UPDATE chat_rooms SET updated_at = datetime('now') WHERE id = ?")
-      .run(roomId);
+    await db.execute("UPDATE chat_rooms SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", [roomId]);
     
     // 最初のユーザーメッセージの場合、タイトルを更新
-    const messageCount = (db.prepare('SELECT COUNT(*) as count FROM chat_messages WHERE room_id = ?').get(roomId) as any).count;
+    const messageCount = (await db.get('SELECT COUNT(*) as count FROM chat_messages WHERE room_id = ?', [roomId]) as any).count;
     if (messageCount === 1 && role === 'user') {
       // 最初の30文字をタイトルにする
       const title = content.length > 30 ? content.substring(0, 30) + '...' : content;
-      db.prepare('UPDATE chat_rooms SET title = ? WHERE id = ?').run(title, roomId);
+      await db.execute('UPDATE chat_rooms SET title = ? WHERE id = ?', [title, roomId]);
     }
 
     return NextResponse.json({
-      id: result.lastInsertRowid,
+      id: result.lastInsertId,
       room_id: roomId,
       role,
       content

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import db from '@/lib/db-wrapper';
 
 // ...既存の import と GET, POST の下あたりに追記
 
@@ -9,13 +9,9 @@ export async function GET(request: NextRequest) {
   const date = url.searchParams.get('date');
   const daysParam = url.searchParams.get('days');
 
-  const dbInstance = db;
-
   // パターン1: dateが指定されている → 1日分取得（今まで通り）
   if (date) {
-    const row = dbInstance
-      .prepare('SELECT * FROM daily_records WHERE date = ?')
-      .get(date) as any;
+    const row = await db.get('SELECT * FROM daily_records WHERE date = ?', [date]) as any;
 
     if (!row) {
       return NextResponse.json({
@@ -49,14 +45,13 @@ export async function GET(request: NextRequest) {
     const endDateStr = today.toISOString().split('T')[0];
     const startDateStr = startDate.toISOString().split('T')[0];
     
-    const rows = dbInstance
-      .prepare(
-        `SELECT date, weight_am, sleep_hours, cardio_minutes
-         FROM daily_records
-         WHERE date >= ? AND date <= ?
-         ORDER BY date ASC`
-      )
-      .all(startDateStr, endDateStr) as any[];
+    const rows = await db.all(
+      `SELECT date, weight_am, sleep_hours, cardio_minutes
+       FROM daily_records
+       WHERE date >= ? AND date <= ?
+       ORDER BY date ASC`,
+      [startDateStr, endDateStr]
+    ) as any[];
 
     return NextResponse.json({
       days,
@@ -82,27 +77,27 @@ export async function POST(request: NextRequest) {
   }
 
   // 既にレコードがあるか確認
-  const existing = db
-    .prepare('SELECT * FROM daily_records WHERE date = ?')
-    .get(date) as any;
+  const existing = await db.get('SELECT * FROM daily_records WHERE date = ?', [date]) as any;
 
   if (existing) {
     // 更新
-    db.prepare(
-      'UPDATE daily_records SET weight_am = ?, weight_pm = ?, memo = ?, sleep_hours = ?, cardio_minutes = ? WHERE date = ?'
-    ).run(
-      weight_am ?? existing.weight_am,
-      weight_pm ?? existing.weight_pm,
-      memo ?? existing.memo,
-      sleep_hours ?? existing.sleep_hours,
-      cardio_minutes ?? existing.cardio_minutes,
-      date
+    await db.execute(
+      'UPDATE daily_records SET weight_am = ?, weight_pm = ?, memo = ?, sleep_hours = ?, cardio_minutes = ? WHERE date = ?',
+      [
+        weight_am ?? existing.weight_am,
+        weight_pm ?? existing.weight_pm,
+        memo ?? existing.memo,
+        sleep_hours ?? existing.sleep_hours,
+        cardio_minutes ?? existing.cardio_minutes,
+        date
+      ]
     );
   } else {
     // 新規作成
-    db.prepare(
-      'INSERT INTO daily_records (date, weight_am, weight_pm, memo, sleep_hours, cardio_minutes) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(date, weight_am ?? null, weight_pm ?? null, memo ?? null, sleep_hours ?? null, cardio_minutes ?? null);
+    await db.execute(
+      'INSERT INTO daily_records (date, weight_am, weight_pm, memo, sleep_hours, cardio_minutes) VALUES (?, ?, ?, ?, ?, ?)',
+      [date, weight_am ?? null, weight_pm ?? null, memo ?? null, sleep_hours ?? null, cardio_minutes ?? null]
+    );
   }
 
   return NextResponse.json({ success: true });

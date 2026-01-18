@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import db from '@/lib/db-wrapper';
 
 // トークルーム削除
 export async function DELETE(
@@ -11,7 +11,7 @@ export async function DELETE(
     const roomId = parseInt(id);
 
     // メッセージも一緒に削除される（FOREIGN KEY ... ON DELETE CASCADE）
-    db.prepare('DELETE FROM chat_rooms WHERE id = ?').run(roomId);
+    await db.execute('DELETE FROM chat_rooms WHERE id = ?', [roomId]);
 
     return NextResponse.json({ success: true });
   } catch (error) {

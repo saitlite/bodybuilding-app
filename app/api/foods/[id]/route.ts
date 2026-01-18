@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import db from '@/lib/db-wrapper';
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  db.prepare('DELETE FROM food_logs WHERE id = ?').run(id);
+  await db.execute('DELETE FROM food_logs WHERE id = ?', [id]);
   return NextResponse.json({ success: true });
 }

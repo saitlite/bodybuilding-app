@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import db from '@/lib/db-wrapper';
 
 export async function POST(request: NextRequest) {
   console.log('=== Chat API Called ===');
@@ -17,41 +17,36 @@ export async function POST(request: NextRequest) {
     const targetDate = date || new Date().toISOString().split('T')[0];
     
     // 当日のデータ
-    const dailyRecord = db
-      .prepare('SELECT * FROM daily_records WHERE date = ?')
-      .get(targetDate) as any;
+    const dailyRecord = await db.get('SELECT * FROM daily_records WHERE date = ?', [targetDate]) as any;
     
-    const foods = db
-      .prepare('SELECT * FROM food_logs WHERE date = ? ORDER BY created_at DESC')
-      .all(targetDate) as any[];
+    const foods = await db.all('SELECT * FROM food_logs WHERE date = ? ORDER BY created_at DESC', [targetDate]) as any[];
     
     // 直近7日のデータ（要約）
-    const recentFoods = db
-      .prepare(`
-        SELECT date, SUM(calories) as total_calories, SUM(protein) as total_protein, 
-               SUM(fat) as total_fat, SUM(carbs) as total_carbs
-        FROM food_logs
-        WHERE date >= date(?, '-7 days')
-        GROUP BY date
-        ORDER BY date DESC
-        LIMIT 7
-      `)
-      .all(targetDate) as any[];
+    // PostgreSQLでは日付計算の方法が異なるため、JavaScriptで計算
+    const sevenDaysAgo = new Date(targetDate);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
     
-    const recentWeights = db
-      .prepare(`
-        SELECT date, weight_am
-        FROM daily_records
-        WHERE date >= date(?, '-7 days') AND weight_am IS NOT NULL
-        ORDER BY date DESC
-        LIMIT 7
-      `)
-      .all(targetDate) as any[];
+    const recentFoods = await db.all(`
+      SELECT date, SUM(calories) as total_calories, SUM(protein) as total_protein,
+             SUM(fat) as total_fat, SUM(carbs) as total_carbs
+      FROM food_logs
+      WHERE date >= ?
+      GROUP BY date
+      ORDER BY date DESC
+      LIMIT 7
+    `, [sevenDaysAgoStr]) as any[];
+    
+    const recentWeights = await db.all(`
+      SELECT date, weight_am
+      FROM daily_records
+      WHERE date >= ? AND weight_am IS NOT NULL
+      ORDER BY date DESC
+      LIMIT 7
+    `, [sevenDaysAgoStr]) as any[];
     
     // 設定値
-    const config = db
-      .prepare('SELECT * FROM user_config WHERE id = 1')
-      .get() as any;
+    const config = await db.get('SELECT * FROM user_config WHERE id = 1', []) as any;
     
     // コンテキスト要約
     const todayTotal = foods.reduce((acc, f) => ({
