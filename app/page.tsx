@@ -87,6 +87,7 @@ interface ChatMessage {
 interface ChatRoom {
   id: number;
   title: string;
+  ai_role?: string;
   created_at: string;
   updated_at: string;
 }
@@ -166,7 +167,18 @@ export default function Home() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [showRoomList, setShowRoomList] = useState(false);
+  const [aiRole, setAiRole] = useState<string>('kanade');
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const roleNames: Record<string, string> = {
+    'default': 'デフォルト',
+    'kanade': '野増菜かなで',
+    'grace': 'グレイス',
+    'rasis': 'レイシス',
+    'nianoa': 'ニアノア',
+    'maxima': 'マキシマ',
+    'godo': '合戸孝二',
+  };
 
   const units = ['g', 'kg', 'ml', 'L', '個', '本', '杯', '皿', '袋', '枚', '貫'];
 
@@ -299,6 +311,10 @@ export default function Home() {
         // 最新のトークルームを自動選択
         const latestRoom = chatRooms[0];
         setCurrentRoomId(latestRoom.id);
+        // AIロールを復元
+        if (latestRoom.ai_role) {
+          setAiRole(latestRoom.ai_role);
+        }
       }
     }
   }, [activeTab, currentRoomId, chatRooms]);
@@ -536,7 +552,7 @@ export default function Home() {
       const res = await fetch('/api/chat-rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: '新しい会話' }),
+        body: JSON.stringify({ title: '新しい会話', ai_role: aiRole }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -563,6 +579,12 @@ export default function Home() {
   const handleSelectRoom = (roomId: number) => {
     setCurrentRoomId(roomId);
     setShowRoomList(false);
+    
+    // ルームのAIロールを復元
+    const room = chatRooms.find((r) => r.id === roomId);
+    if (room?.ai_role) {
+      setAiRole(room.ai_role);
+    }
   };
 
   const handleDeleteRoom = async (roomId: number) => {
@@ -606,7 +628,7 @@ export default function Home() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage, date }),
+        body: JSON.stringify({ message: userMessage, date, role: aiRole }),
       });
 
       if (!res.ok) {
@@ -682,9 +704,12 @@ export default function Home() {
       {/* ヘッダー */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm">
         <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
-          <h1 className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-            減量管理
-          </h1>
+          <div className="flex items-center gap-2">
+            <img src="/tashiro.ico" alt="アイコン" className="w-8 h-8" />
+            <h1 className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+              減量管理
+            </h1>
+          </div>
           <button
             onClick={() => setShowConfigModal(true)}
             className="text-sm text-slate-600 hover:text-blue-600 transition-colors font-medium"
@@ -1407,26 +1432,52 @@ export default function Home() {
           <div className="h-[calc(100vh-180px)]">
             <div className="bg-white/90 backdrop-blur rounded-xl shadow h-full flex flex-col">
               {/* チャットヘッダー */}
-              <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-                <div>
-                  <h2 className="font-semibold text-slate-700">AIアドバイザー</h2>
-                  {currentRoom && (
-                    <p className="text-xs text-slate-500">{currentRoom.title}</p>
-                  )}
+              <div className="p-4 border-b border-slate-200">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h2 className="font-semibold text-slate-700">アドバイザー：{roleNames[aiRole]}</h2>
+                    {currentRoom && (
+                      <p className="text-xs text-slate-500">{currentRoom.title}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowRoomList(!showRoomList)}
+                      className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors"
+                    >
+                      会話履歴
+                    </button>
+                    <button
+                      onClick={handleNewChatRoom}
+                      className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors"
+                    >
+                      新しい会話
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowRoomList(!showRoomList)}
-                    className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors"
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-slate-600">ロール:</label>
+                  <select
+                    value={aiRole}
+                    onChange={(e) => setAiRole(e.target.value)}
+                    disabled={currentRoomId !== null && chatMessages.length > 0}
+                    className={`flex-1 text-sm border rounded-lg px-2 py-1 transition-all ${
+                      currentRoomId !== null && chatMessages.length > 0
+                        ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed'
+                        : 'border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent'
+                    }`}
                   >
-                    会話履歴
-                  </button>
-                  <button
-                    onClick={handleNewChatRoom}
-                    className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors"
-                  >
-                    新しい会話
-                  </button>
+                    <option value="default">デフォルト</option>
+                    <option value="kanade">野増菜かなで</option>
+                    <option value="grace">グレイス</option>
+                    <option value="rasis">レイシス</option>
+                    <option value="nianoa">ニアノア</option>
+                    <option value="maxima">マキシマ</option>
+                    <option value="godo">合戸孝二</option>
+                  </select>
+                  {currentRoomId !== null && chatMessages.length > 0 && (
+                    <span className="text-xs text-slate-400">（固定）</span>
+                  )}
                 </div>
               </div>
 
@@ -1481,8 +1532,18 @@ export default function Home() {
                   chatMessages.map((msg, idx) => (
                     <div
                       key={idx}
-                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start items-start gap-2'}`}
                     >
+                      {msg.role === 'assistant' && (
+                        <img
+                          src={`/${aiRole}.ico`}
+                          alt="AI"
+                          className="w-8 h-8 rounded-full flex-shrink-0 mt-1"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = '/tashiro.ico';
+                          }}
+                        />
+                      )}
                       <div
                         className={`max-w-[85%] rounded-lg px-4 py-3 ${
                           msg.role === 'user'

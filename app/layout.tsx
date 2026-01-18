@@ -13,6 +13,11 @@ export const metadata: Metadata = {
   title: "減量管理",
   description: "カロリー収支アプリ",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/tashiro.ico",
+    shortcut: "/tashiro.ico",
+    apple: "/tashiro.ico",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

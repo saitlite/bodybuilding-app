@@ -20,18 +20,22 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { title } = body;
+    const { title, ai_role } = body;
 
-    const result = await db.execute('INSERT INTO chat_rooms (title) VALUES (?)', [title || '新しい会話']);
+    const result = await db.execute(
+      'INSERT INTO chat_rooms (title, ai_role) VALUES (?, ?)',
+      [title || '新しい会話', ai_role || 'kanade']
+    );
 
     return NextResponse.json({
       id: result.lastInsertId,
-      title: title || '新しい会話'
+      title: title || '新しい会話',
+      ai_role: ai_role || 'kanade'
     });
   } catch (error) {
     console.error('Create chat room error:', error);
-    return NextResponse.json({ 
-      error: 'Server Error', 
+    return NextResponse.json({
+      error: 'Server Error',
       message: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }

@@ -147,4 +147,17 @@ if (version < 4) {
   db.prepare('UPDATE _schema_version SET version = 4').run();
 }
 
+// v5: チャットルームにAIロールカラム追加
+if (version < 5) {
+  try {
+    db.prepare('ALTER TABLE chat_rooms ADD COLUMN ai_role TEXT NOT NULL DEFAULT "kanade"').run();
+    console.log('✅ AIロールカラムを追加しました');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) {
+      throw e;
+    }
+  }
+  db.prepare('UPDATE _schema_version SET version = 5').run();
+}
+
 export default db;
