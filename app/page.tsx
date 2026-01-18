@@ -703,7 +703,7 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
       {/* ヘッダー */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm">
-        <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img src="/tashiro.ico" alt="アイコン" className="w-8 h-8" />
             <h1 className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
@@ -721,7 +721,7 @@ export default function Home() {
 
       {/* タブナビゲーション */}
       <nav className="sticky top-[57px] z-40 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm">
-        <div className="max-w-md mx-auto px-4 flex">
+        <div className="max-w-7xl mx-auto px-4 flex">
           {(['home', 'stats', 'ai'] as const).map((tab) => (
             <button
               key={tab}
@@ -744,10 +744,12 @@ export default function Home() {
       </nav>
 
       {/* メインコンテンツ */}
-      <main className="max-w-md mx-auto px-4 py-4 pb-20">
+      <main className="max-w-7xl mx-auto px-4 py-4 pb-20">
         {/* ホームタブ */}
         {activeTab === 'home' && (
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* 左カラム: データ入力 */}
+            <div className="space-y-4">
             {/* 日付選択 */}
             <div className="flex items-center justify-center gap-4">
               <button
@@ -1101,6 +1103,48 @@ export default function Home() {
                 </div>
               </div>
             ) : null}
+            </div>
+            
+            {/* 右カラム: グラフとチャート（デスクトップのみ表示） */}
+            <div className="hidden lg:block space-y-4">
+              {/* 直近7日グラフを右側に表示 */}
+              <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
+                <h2 className="font-semibold mb-2 text-slate-700 text-sm">直近7日の推移</h2>
+                {weightHistory.length > 0 ? (
+                  <div className="h-48">
+                    <ResponsiveContainer>
+                      <LineChart data={weightHistory}>
+                        <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v) => v.slice(5)} />
+                        <YAxis tick={{ fontSize: 9 }} domain={['dataMin - 0.5', 'dataMax + 0.5']} />
+                        <Tooltip />
+                        <Line type="monotone" dataKey="weight_am" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="text-slate-400 text-xs text-center py-4">データ不足</p>
+                )}
+              </div>
+
+              {/* カロリー推移グラフ */}
+              <div className="bg-white/80 backdrop-blur p-4 rounded-xl shadow">
+                <h2 className="font-semibold mb-2 text-slate-700 text-sm">直近7日カロリー</h2>
+                {calorieHistory.length > 0 ? (
+                  <div className="h-48">
+                    <ResponsiveContainer>
+                      <LineChart data={calorieHistory}>
+                        <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v) => v.slice(5)} />
+                        <YAxis tick={{ fontSize: 9 }} domain={[0, 'dataMax + 500']} />
+                        <Tooltip />
+                        <Line type="monotone" dataKey="total_calories" stroke="#ef4444" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="text-slate-400 text-xs text-center py-4">データ不足</p>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
