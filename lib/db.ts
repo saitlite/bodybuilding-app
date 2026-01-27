@@ -160,4 +160,17 @@ if (version < 5) {
   db.prepare('UPDATE _schema_version SET version = 5').run();
 }
 
+// v6: チャットメッセージに画像URL追加
+if (version < 6) {
+  try {
+    db.prepare('ALTER TABLE chat_messages ADD COLUMN image_url TEXT').run();
+    console.log('✅ チャットメッセージに画像URLカラムを追加しました');
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) {
+      throw e;
+    }
+  }
+  db.prepare('UPDATE _schema_version SET version = 6').run();
+}
+
 export default db;

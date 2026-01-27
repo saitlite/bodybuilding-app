@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   room_id INTEGER NOT NULL REFERENCES chat_rooms(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
   content TEXT NOT NULL,
+  image_url TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

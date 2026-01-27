@@ -55,16 +55,27 @@ export const db = {
   },
 
   // INSERT/UPDATE/DELETE文の実行
-  async execute(sql: string, params: any[] = []): Promise<{ lastInsertId?: number; changes: number }> {
+  async execute(sqlStr: string, params: any[] = []): Promise<{ lastInsertId?: number; changes: number }> {
     if (USE_POSTGRES) {
-      const result = await sqlQuery(sql, params);
+      // PostgreSQLの場合、INSERT文にRETURNING idがなければ追加
+      let modifiedSql = sqlStr;
+      const isInsert = sqlStr.trim().toUpperCase().startsWith('INSERT');
+      const hasReturning = sqlStr.toUpperCase().includes('RETURNING');
+
+      if (isInsert && !hasReturning) {
+        modifiedSql = sqlStr.replace(/;?\s*$/, '') + ' RETURNING id';
+      }
+
+      const result = await sqlQuery(modifiedSql, params);
       return {
         lastInsertId: result.rows[0]?.id,
         changes: result.rowCount || 0,
       };
     } else {
       if (!sqliteDb) throw new Error('SQLite not initialized');
-      const stmt = sqliteDb.prepare(sql);
+      // SQLiteの場合、RETURNING句を削除（古いバージョン対応）
+      const cleanSql = sqlStr.replace(/\s+RETURNING\s+\w+/gi, '');
+      const stmt = sqliteDb.prepare(cleanSql);
       const info = stmt.run(...params);
       return {
         lastInsertId: Number(info.lastInsertRowid),

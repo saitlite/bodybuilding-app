@@ -31,9 +31,12 @@ export async function POST(
     const { id } = await params;
     const roomId = parseInt(id);
     const body = await request.json();
-    const { role, content } = body;
+    const { role, content, image_url } = body;
 
-    const result = await db.execute('INSERT INTO chat_messages (room_id, role, content) VALUES (?, ?, ?)', [roomId, role, content]);
+    const result = await db.execute(
+      'INSERT INTO chat_messages (room_id, role, content, image_url) VALUES (?, ?, ?, ?)',
+      [roomId, role, content, image_url || null]
+    );
 
     // ルームの更新日時を更新
     await db.execute("UPDATE chat_rooms SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", [roomId]);

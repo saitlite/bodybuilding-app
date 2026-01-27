@@ -45,7 +45,7 @@ export default function RootLayout({
       </head>
       <body
         suppressHydrationWarning
-        className={`${notoSansJp.variable} antialiased`}
+        className={`${notoSansJp.variable} font-sans antialiased`}
       >
         {children}
       </body>

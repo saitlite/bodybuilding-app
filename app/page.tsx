@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Label, BarChart, Bar } from 'recharts';
 import MarkdownContent from './components/MarkdownContent';
 
@@ -82,6 +83,7 @@ interface ChatMessage {
   id?: number;
   role: 'user' | 'assistant';
   content: string;
+  image_url?: string | null;
 }
 
 interface ChatRoom {
@@ -155,6 +157,7 @@ export default function Home() {
 
   // 統計用
   const [statsValue, setStatsValue] = useState<number>(30);
+  const [statsValueInput, setStatsValueInput] = useState<string>('30'); // 入力中の値を保持
   const [statsUnit, setStatsUnit] = useState<'days' | 'months' | 'years'>('days');
   const [isAllPeriod, setIsAllPeriod] = useState(false);
   const [statsCalorieDays, setStatsCalorieDays] = useState<CalorieRecord[]>([]);
@@ -168,9 +171,15 @@ export default function Home() {
   const [chatLoading, setChatLoading] = useState(false);
   const [showRoomList, setShowRoomList] = useState(false);
   const [aiRole, setAiRole] = useState<string>('kanade');
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [hasInitializedAI, setHasInitializedAI] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const roleNames: Record<string, string> = {
+    'assistant': 'アシスタント',
     'default': 'デフォルト',
     'kanade': '野増菜かなで',
     'grace': 'グレイス',
@@ -303,21 +312,26 @@ export default function Home() {
     }
   }, [activeTab, statsValue, statsUnit, isAllPeriod]);
 
+  // AIタブの初期化とメッセージ取得
   useEffect(() => {
     if (activeTab === 'ai') {
+      // メッセージ取得
       if (currentRoomId) {
         fetchChatMessages(currentRoomId);
-      } else if (chatRooms.length > 0) {
-        // 最新のトークルームを自動選択
-        const latestRoom = chatRooms[0];
-        setCurrentRoomId(latestRoom.id);
-        // AIロールを復元
-        if (latestRoom.ai_role) {
-          setAiRole(latestRoom.ai_role);
-        }
+      }
+      // 初回のみ自動選択
+      else if (!hasInitializedAI && chatRooms.length > 0) {
+        setCurrentRoomId(chatRooms[0].id);
+        setHasInitializedAI(true);
+      }
+    } else {
+      // 他のタブに移動したらリセット
+      if (hasInitializedAI) {
+        setHasInitializedAI(false);
       }
     }
-  }, [activeTab, currentRoomId, chatRooms]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, currentRoomId, chatRooms.length]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -556,11 +570,26 @@ export default function Home() {
       });
       if (res.ok) {
         const data = await res.json();
-        await fetchChatRooms();
-        setCurrentRoomId(data.id);
+        // IDを確実にnumber型に変換
+        const newRoomId = Number(data.id);
+        console.log('New room created:', newRoomId, typeof newRoomId);
+
+        // 初期化フラグを立てて自動選択を防ぐ
+        if (!hasInitializedAI) {
+          setHasInitializedAI(true);
+        }
+
+        // 新しいルームを選択（先に設定）
         setChatMessages([]);
+        setCurrentRoomId(newRoomId);
         setShowRoomList(false);
-        
+
+        // 次の新しい会話用にロールをデフォルトにリセット
+        setAiRole('kanade');
+
+        // ルーム一覧を更新
+        await fetchChatRooms();
+
         // 新規会話開始のアニメーション効果
         setTimeout(() => {
           const inputElement = document.querySelector('input[placeholder*="質問"]') as HTMLInputElement;
@@ -579,12 +608,8 @@ export default function Home() {
   const handleSelectRoom = (roomId: number) => {
     setCurrentRoomId(roomId);
     setShowRoomList(false);
-    
-    // ルームのAIロールを復元
-    const room = chatRooms.find((r) => r.id === roomId);
-    if (room?.ai_role) {
-      setAiRole(room.ai_role);
-    }
+    // aiRole stateは更新しない（新規会話作成時のみ使用）
+    // 表示は currentRoom?.ai_role を使用
   };
 
   const handleDeleteRoom = async (roomId: number) => {
@@ -604,37 +629,133 @@ export default function Home() {
     }
   };
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // 画像ファイルかチェック
+    if (!file.type.startsWith('image/')) {
+      alert('画像ファイルを選択してください');
+      return;
+    }
+
+    // 5MB以下かチェック
+    if (file.size > 5 * 1024 * 1024) {
+      alert('ファイルサイズは5MB以下にしてください');
+      return;
+    }
+
+    setSelectedImage(file);
+    
+    // プレビュー用URL生成
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPreviewUrl(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = () => {
+    setSelectedImage(null);
+    setPreviewUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleChatSend = async () => {
-    if (!chatInput.trim() || chatLoading || !currentRoomId) return;
+    if ((!chatInput.trim() && !selectedImage) || chatLoading || !currentRoomId) return;
 
-    const userMessage = chatInput.trim();
+    const userMessage = chatInput.trim() || '';
     setChatInput('');
+    
+    let uploadedImageUrl: string | null = null;
 
-    // ユーザーメッセージをDBに保存（タイトル更新も含む）
+    // 画像がある場合はアップロード
+    if (selectedImage) {
+      setUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append('file', selectedImage);
+        
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          uploadedImageUrl = uploadData.url;
+        } else {
+          alert('画像のアップロードに失敗しました');
+          setUploading(false);
+          return;
+        }
+      } catch (error) {
+        console.error('Upload error:', error);
+        alert('画像のアップロードに失敗しました');
+        setUploading(false);
+        return;
+      } finally {
+        setUploading(false);
+      }
+    }
+
+    // ユーザーメッセージをDBに保存（画像URL含む）
     await fetch(`/api/chat-rooms/${currentRoomId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: 'user', content: userMessage }),
+      body: JSON.stringify({
+        role: 'user',
+        content: userMessage || '画像を送信しました',
+        image_url: uploadedImageUrl
+      }),
     });
 
     // UIに即座に反映
-    setChatMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
+    setChatMessages((prev) => [...prev, {
+      role: 'user',
+      content: userMessage || '画像を送信しました',
+      image_url: uploadedImageUrl
+    }]);
+    
+    // 画像選択をリセット
+    setSelectedImage(null);
+    setPreviewUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    
     setChatLoading(true);
     
-    // ルーム一覧を更新（タイトル更新を反映）- await追加
+    // ルーム一覧を更新（タイトル更新を反映）
     await fetchChatRooms();
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage, date, role: aiRole, roomId: currentRoomId }),
+        body: JSON.stringify({
+          message: userMessage,
+          date,
+          role: currentRoom?.ai_role || aiRole,
+          roomId: currentRoomId,
+          imageUrl: uploadedImageUrl
+        }),
       });
 
       if (!res.ok) {
-        const errorData = await res.json();
+        console.error('Chat API Response Status:', res.status, res.statusText);
+        let errorData: any = {};
+        try {
+          const responseText = await res.text();
+          console.error('Chat API Response Text:', responseText);
+          errorData = responseText ? JSON.parse(responseText) : {};
+        } catch (parseError) {
+          console.error('Failed to parse error response:', parseError);
+        }
         console.error('Chat API Error:', errorData);
-        const errorMsg = `エラー: ${errorData.error || 'APIエラーが発生しました'}`;
+        const errorMsg = `エラー: ${errorData.message || errorData.error || `APIエラー (${res.status})`}`;
         
         await fetch(`/api/chat-rooms/${currentRoomId}/messages`, {
           method: 'POST',
@@ -759,17 +880,28 @@ export default function Home() {
                 前日
               </button>
               {showDatePicker ? (
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  onBlur={() => setShowDatePicker(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === 'Escape') setShowDatePicker(false);
-                  }}
-                  className="border rounded-lg px-3 py-2 text-sm shadow-sm"
-                  autoFocus
-                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    onBlur={() => setTimeout(() => setShowDatePicker(false), 150)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === 'Escape') setShowDatePicker(false);
+                    }}
+                    className="border rounded-lg px-3 py-2 text-sm shadow-sm"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => {
+                      setDate(new Date().toISOString().split('T')[0]);
+                      setShowDatePicker(false);
+                    }}
+                    className="px-3 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-all whitespace-nowrap"
+                  >
+                    今日
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={() => setShowDatePicker(true)}
@@ -1178,8 +1310,21 @@ export default function Home() {
                         <input
                           type="number"
                           min="1"
-                          value={statsValue}
-                          onChange={(e) => setStatsValue(parseInt(e.target.value) || 1)}
+                          value={statsValueInput}
+                          onChange={(e) => setStatsValueInput(e.target.value)}
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value) || 1;
+                            setStatsValue(val);
+                            setStatsValueInput(String(val));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const val = parseInt(statsValueInput) || 1;
+                              setStatsValue(val);
+                              setStatsValueInput(String(val));
+                              (e.target as HTMLInputElement).blur();
+                            }
+                          }}
                           className="w-20 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                         />
                         <select
@@ -1479,7 +1624,7 @@ export default function Home() {
               <div className="p-4 border-b border-slate-200">
                 <div className="flex items-center justify-between mb-2">
                   <div>
-                    <h2 className="font-semibold text-slate-700">アドバイザー：{roleNames[aiRole]}</h2>
+                    <h2 className="font-semibold text-slate-700">アドバイザー：{roleNames[currentRoom?.ai_role || aiRole]}</h2>
                     {currentRoom && (
                       <p className="text-xs text-slate-500">{currentRoom.title}</p>
                     )}
@@ -1502,8 +1647,20 @@ export default function Home() {
                 <div className="flex items-center gap-2">
                   <label className="text-xs text-slate-600">ロール:</label>
                   <select
-                    value={aiRole}
-                    onChange={(e) => setAiRole(e.target.value)}
+                    value={currentRoom?.ai_role || aiRole}
+                    onChange={async (e) => {
+                      const newRole = e.target.value;
+                      setAiRole(newRole);
+                      // ルームが選択されていて、まだメッセージがない場合はルームのロールも更新
+                      if (currentRoomId && chatMessages.length === 0) {
+                        await fetch(`/api/chat-rooms/${currentRoomId}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ ai_role: newRole }),
+                        });
+                        await fetchChatRooms();
+                      }
+                    }}
                     disabled={currentRoomId !== null && chatMessages.length > 0}
                     className={`flex-1 text-sm border rounded-lg px-2 py-1 transition-all ${
                       currentRoomId !== null && chatMessages.length > 0
@@ -1511,7 +1668,8 @@ export default function Home() {
                         : 'border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent'
                     }`}
                   >
-                    <option value="default">デフォルト</option>
+                    <option value="assistant">アシスタント（汎用AI）</option>
+                    <option value="default">デフォルト（栄養士）</option>
                     <option value="kanade">野増菜かなで</option>
                     <option value="grace">グレイス</option>
                     <option value="rasis">レイシス</option>
@@ -1580,7 +1738,7 @@ export default function Home() {
                     >
                       {msg.role === 'assistant' && (
                         <img
-                          src={`/${aiRole}.ico`}
+                          src={`/${currentRoom?.ai_role || 'kanade'}.ico`}
                           alt="AI"
                           className="w-8 h-8 rounded-full flex-shrink-0 mt-1"
                           onError={(e) => {
@@ -1595,6 +1753,14 @@ export default function Home() {
                             : 'bg-white text-slate-800 border border-slate-200 shadow-sm'
                         }`}
                       >
+                        {msg.image_url && (
+                          <img
+                            src={msg.image_url}
+                            alt="添付画像"
+                            className="max-w-full rounded-lg mb-2"
+                            style={{ maxHeight: '300px' }}
+                          />
+                        )}
                         {msg.role === 'assistant' ? (
                           <MarkdownContent content={msg.content} />
                         ) : (
@@ -1604,12 +1770,66 @@ export default function Home() {
                     </div>
                   ))
                 )}
+                {/* ローディングアニメーション */}
+                {chatLoading && (
+                  <div className="flex items-start gap-3">
+                    <img
+                      src={`/${currentRoom?.ai_role || 'kanade'}.ico`}
+                      alt="AI"
+                      className="w-8 h-8 rounded-full flex-shrink-0 mt-1"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = '/tashiro.ico';
+                      }}
+                    />
+                    <div className="bg-white text-slate-800 border border-slate-200 shadow-sm rounded-lg px-4 py-3 min-w-[60px]">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span className="typing-dot"></span>
+                        <span className="typing-dot"></span>
+                        <span className="typing-dot"></span>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div ref={chatEndRef} />
               </div>
 
               {/* 入力エリア */}
               <div className="p-4 border-t border-slate-200 bg-white">
+                {/* 画像プレビュー */}
+                {previewUrl && (
+                  <div className="mb-2 relative inline-block">
+                    <img
+                      src={previewUrl}
+                      alt="プレビュー"
+                      className="max-h-32 rounded-lg border border-slate-200"
+                    />
+                    <button
+                      onClick={handleRemoveImage}
+                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600 transition-colors"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+                
                 <div className="flex gap-2">
+                  {/* 画像アップロードボタン */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelect}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={chatLoading || !currentRoomId || uploading}
+                    className="bg-slate-100 text-slate-700 px-3 py-2 rounded-lg text-sm font-medium hover:bg-slate-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="画像を添付"
+                  >
+                    📎
+                  </button>
+                  
                   <input
                     type="text"
                     value={chatInput}
@@ -1624,14 +1844,14 @@ export default function Home() {
                     className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
                       !currentRoomId ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'border-slate-300'
                     }`}
-                    disabled={chatLoading || !currentRoomId}
+                    disabled={chatLoading || !currentRoomId || uploading}
                   />
                   <button
                     onClick={handleChatSend}
-                    disabled={chatLoading || !chatInput.trim() || !currentRoomId}
+                    disabled={chatLoading || (!chatInput.trim() && !selectedImage) || !currentRoomId || uploading}
                     className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {chatLoading ? '...' : '送信'}
+                    {uploading ? 'アップロード中...' : chatLoading ? '...' : '送信'}
                   </button>
                 </div>
               </div>

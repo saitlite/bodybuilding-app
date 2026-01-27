@@ -62,7 +62,7 @@ export async function getNutrition(
 余計なコメントは不要です。存在しない食材でも推定値を出力してください。`,
         },
       ],
-      max_tokens: 150,
+      max_completion_tokens: 150,
       temperature: 0.2,
     }),
   });
